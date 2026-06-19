@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: research-agents
+  namespace: agents
+  labels:
+    app: research-agents
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: research-agents
+  template:
+    metadata:
+      labels:
+        app: research-agents
+    spec:
+      serviceAccountName: research-agents
+      containers:
+        - name: langgraph
+          image: AGENTS_IMAGE
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: app-secrets
+            - configMapRef:
+                name: app-config
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /ok
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: research-agents
+  namespace: agents
+spec:
+  selector:
+    app: research-agents
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: research-agents
+  namespace: agents
+  annotations:
+    eks.amazonaws.com/role-arn: AGENTS_IRSA_ROLE_ARN

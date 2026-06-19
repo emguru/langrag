@@ -1,0 +1,41 @@
+# LangSmith self-hosted — Tier A (Enterprise license required)
+# Docs: https://docs.langchain.com/langsmith/kubernetes
+#
+# Usage:
+#   helm repo add langchain https://langchain-ai.github.io/helm/
+#   helm upgrade -i langsmith langchain/langsmith \
+#     -n langsmith --create-namespace \
+#     -f k8s/langsmith/values-aws.yaml
+
+# Reference configuration — customize with your RDS/Redis/S3 endpoints from Terraform outputs
+
+config:
+  langsmithLicenseKey: ""  # set via --set or external secret
+
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+  hosts:
+    - host: langsmith.yourdomain.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+postgres:
+  external:
+    enabled: true
+    # connectionUrl: set from terraform output / secrets manager
+
+redis:
+  external:
+    enabled: true
+    # connectionUrl: set from terraform output / secrets manager
+
+clickhouse:
+  persistence:
+    enabled: true
+    storageClass: gp3

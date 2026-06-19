@@ -1,0 +1,28 @@
+{
+  "app": "npx ts-node --prefer-ts-exts bin/app.ts",
+  "watch": {
+    "include": ["**"],
+    "exclude": [
+      "README.md",
+      "cdk*.json",
+      "**/*.d.ts",
+      "**/*.js",
+      "tsconfig.json",
+      "node_modules",
+      "test"
+    ]
+  },
+  "context": {
+    "clusterName": "kube-rag-langg",
+    "adminPrincipalArn": "arn:aws:iam::280793168415:user/aiad-admin",
+    "demoMode": true,
+    "enableRds": false,
+    "enableElastiCache": false,
+    "nodeInstanceType": "t3.large",
+    "nodeMinSize": 0,
+    "nodeMaxSize": 2,
+    "nodeDesiredSize": 1,
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:checkSecretUsage": true
+  }
+}

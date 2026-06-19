@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: agents
+data:
+  LANGSMITH_PROJECT: "research-showcase"
+  LANGSMITH_TRACING: "true"
+  QDRANT_URL: "http://qdrant.rag.svc.cluster.local:6333"
+  QDRANT_COLLECTION: "research_docs"
+  INGESTION_API_URL: "http://ingestion.rag.svc.cluster.local:8001"
+  BEDROCK_REGION: "us-east-1"
+  DEFAULT_LLM_MODEL: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+  DEFAULT_EMBEDDING_MODEL: "amazon.titan-embed-text-v2:0"
+  LLM_PROVIDER: "bedrock"
+  MAX_RESEARCHER_PARALLEL: "3"
+  RAG_TOP_K: "8"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: rag
+data:
+  QDRANT_URL: "http://qdrant.rag.svc.cluster.local:6333"
+  QDRANT_COLLECTION: "research_docs"
+  BEDROCK_REGION: "us-east-1"
+  DEFAULT_EMBEDDING_MODEL: "amazon.titan-embed-text-v2:0"
+  LLM_PROVIDER: "bedrock"
+  CHUNK_SIZE: "1000"
+  CHUNK_OVERLAP: "200"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: showcase
+data:
+  LANGSMITH_PROJECT: "research-showcase"
+  CORS_ORIGINS: "*"

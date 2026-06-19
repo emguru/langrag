@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: showcase-ui
+  namespace: showcase
+  labels:
+    app: showcase-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: showcase-ui
+  template:
+    metadata:
+      labels:
+        app: showcase-ui
+    spec:
+      containers:
+        - name: ui
+          image: UI_IMAGE
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: app-secrets
+            - configMapRef:
+                name: app-config
+          env:
+            - name: LANGGRAPH_URL
+              value: "http://research-agents.agents.svc.cluster.local:8000"
+            - name: INGESTION_URL
+              value: "http://ingestion.rag.svc.cluster.local:8001"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: showcase-ui
+  namespace: showcase
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+spec:
+  type: LoadBalancer
+  selector:
+    app: showcase-ui
+  ports:
+    - port: 80
+      targetPort: 8000

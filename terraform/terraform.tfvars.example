@@ -1,0 +1,27 @@
+# Demo defaults — intermittent showcase, minimal idle cost
+aws_region   = "us-east-1"
+environment  = "demo"
+cluster_name = "kube-rag-langg"
+demo_mode    = true
+
+# Only needed if enable_rds = true (off by default for demos)
+postgres_username = "langgraph_admin"
+postgres_password = ""
+
+langsmith_api_key = ""
+openai_api_key    = ""
+
+# Single t3.large node pool; scales to 0 when demo is stopped
+node_instance_types = ["t3.large"]
+node_min_size       = 0
+node_max_size       = 2
+node_desired_size   = 1
+
+# Skip managed data stores — agents use in-memory checkpoints, Redis runs in-cluster
+enable_rds           = false
+enable_elasticache   = false
+
+tags = {
+  Owner   = "demo"
+  Purpose = "intermittent-showcase"
+}

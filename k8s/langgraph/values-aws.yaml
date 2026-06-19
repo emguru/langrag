@@ -1,0 +1,36 @@
+# LangGraph Deployment (LangSmith Deployment) — Tier A
+# Docs: https://github.com/langchain-ai/helm/tree/main/charts/langgraph-cloud
+#
+# Build your agent image first:
+#   cd agents && langgraph build -t <ecr>/research-agents:latest
+#
+# Usage:
+#   helm upgrade -i langgraph-cloud langchain/langgraph-cloud \
+#     -n langsmith \
+#     -f k8s/langgraph/values-aws.yaml
+
+images:
+  apiServerImage:
+    repository: AGENTS_ECR_REPO
+    tag: latest
+    pullPolicy: Always
+
+config:
+  langGraphCloudLicenseKey: ""
+  apiKey: ""  # LangSmith API key for tracing
+
+postgres:
+  external:
+    enabled: true
+    # connectionUrl: from secrets manager
+
+mongo:
+  enabled: false
+
+apiServer:
+  deployment:
+    extraEnv:
+      - name: LANGSMITH_PROJECT
+        value: research-showcase
+      - name: QDRANT_URL
+        value: http://qdrant.rag.svc.cluster.local:6333

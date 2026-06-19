@@ -1,0 +1,553 @@
+# Build and Usage Guide
+
+Complete instructions for building, deploying, operating, and using the **Kube RAG LangGraph** demo showcase on AWS.
+
+**Architecture diagram:** [ARCHITECTURE_DIAGRAM.md](./ARCHITECTURE_DIAGRAM.md) · [architecture-diagram.html](./architecture-diagram.html)
+
+---
+
+## Table of contents
+
+1. [Overview](#overview)
+2. [Prerequisites](#prerequisites)
+3. [Architecture summary](#architecture-summary)
+4. [Initial build and deploy](#initial-build-and-deploy)
+5. [Configuration reference](#configuration-reference)
+6. [Using the showcase](#using-the-showcase)
+7. [Research agent workflow](#research-agent-workflow)
+8. [RAG document ingestion](#rag-document-ingestion)
+9. [Observability](#observability)
+10. [Demo lifecycle (stop/start/park)](#demo-lifecycle-stopstartpark)
+11. [Troubleshooting](#troubleshooting)
+12. [Local development](#local-development)
+13. [Upgrading and redeploying](#upgrading-and-redeploying)
+
+---
+
+## Overview
+
+This project deploys a **multi-agent research team** (LangGraph) with **RAG** (retrieval-augmented generation) on **Amazon EKS**, using:
+
+| Component | Technology |
+|-----------|------------|
+| Infrastructure | AWS CDK (TypeScript) → CloudFormation |
+| Compute | Amazon EKS 1.32, `t3.large` node group |
+| LLM + embeddings | Amazon Bedrock (Claude + Titan) |
+| Vector store | Qdrant (in-cluster, EBS-backed) |
+| Document store | Amazon S3 |
+| Container registry | Amazon ECR |
+| Tracing | LangSmith Cloud (API key) |
+| UI | React + FastAPI gateway |
+
+**Demo mode** optimizes for intermittent use: no RDS, no ElastiCache, single node pool, scale-to-zero support.
+
+---
+
+## Prerequisites
+
+### Tools
+
+| Tool | Version | Install |
+|------|---------|---------|
+| AWS CLI | v2 | `brew install awscli` |
+| Node.js | 18+ | `brew install node` |
+| AWS CDK CLI | via npm | `npm install -g aws-cdk` (optional; project uses `npx`) |
+| kubectl | latest | `brew install kubectl` |
+| helm | 3.x | `brew install helm` |
+| Docker | 24+ | Docker Desktop or `brew install docker colima && colima start` |
+| git | any | — |
+
+### AWS account
+
+- IAM permissions for: CloudFormation, EKS, EC2, VPC, S3, ECR, IAM, Secrets Manager, Bedrock
+- **Bedrock model access** enabled in the AWS console:
+  - `anthropic.claude-3-5-sonnet-20241022-v2:0` (or your chosen Claude model)
+  - `amazon.titan-embed-text-v2:0`
+- Region: **us-east-1** (default; changeable)
+
+### API keys
+
+| Key | Required | Where |
+|-----|----------|-------|
+| `LANGSMITH_API_KEY` | Recommended | [smith.langchain.com](https://smith.langchain.com) — free tier works |
+| `TAVILY_API_KEY` | Optional | Web search in research agents |
+| `OPENAI_API_KEY` | Optional | Only if `LLM_PROVIDER=openai` |
+
+No LangSmith self-hosted license is required.
+
+---
+
+## Architecture summary
+
+```
+Demo User
+    │
+    ▼
+Elastic Load Balancing (showcase-ui Service)
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Amazon EKS (kube-rag-langg)                                │
+│  ┌─────────────┐  ┌──────────────────┐  ┌───────────────┐  │
+│  │ showcase    │  │ agents           │  │ rag           │  │
+│  │ UI + API    │─▶│ LangGraph team   │─▶│ ingestion     │  │
+│  │             │  │ research-agents  │  │ qdrant, redis │  │
+│  └─────────────┘  └────────┬─────────┘  └───────┬───────┘  │
+└────────────────────────────┼────────────────────┼──────────┘
+                             │                    │
+                    Amazon Bedrock          Amazon S3
+                    (Claude + Titan)        (documents)
+                             │
+                    LangSmith Cloud (traces)
+```
+
+See the full diagram: [ARCHITECTURE_DIAGRAM.md](./ARCHITECTURE_DIAGRAM.md) or open [architecture-diagram.html](./architecture-diagram.html) in a browser.
+
+### CDK-provisioned resources (`KubeRagLanggDemo` stack)
+
+| Resource | Purpose |
+|----------|---------|
+| VPC | 3 AZs, public + private subnets, 1 NAT gateway |
+| EKS cluster | `kube-rag-langg`, Kubernetes 1.32 |
+| Node group | `general`, `t3.large`, min 0 / max 2 |
+| S3 bucket | `{cluster}-documents-{account}` |
+| ECR repos | `agents`, `ingestion`, `ui` |
+| IAM (IRSA) | Bedrock invoke + S3 read/write for pods |
+| Secrets Manager | App secrets placeholder |
+
+### In-cluster workloads (`deploy.sh`)
+
+| Namespace | Workloads |
+|-----------|-----------|
+| `showcase` | Showcase UI (React + FastAPI) |
+| `agents` | LangGraph research team server |
+| `rag` | Ingestion API, Qdrant, Redis |
+| `kube-system` | EBS CSI, ALB controller (from bootstrap) |
+
+---
+
+## Initial build and deploy
+
+### Step 1 — Clone and configure
+
+```bash
+cd kube_rag_langg
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```bash
+LANGSMITH_API_KEY=lsv2_pt_...        # your key
+AWS_REGION=us-east-1
+CLUSTER_NAME=kube-rag-langg
+LLM_PROVIDER=bedrock
+```
+
+Ensure AWS credentials are active:
+
+```bash
+aws sts get-caller-identity
+```
+
+### Step 2 — Deploy infrastructure (~15–20 min)
+
+```bash
+chmod +x scripts/*.sh
+./scripts/infra-deploy.sh
+```
+
+This runs `cdk bootstrap` (if needed) and `cdk deploy` for stack `KubeRagLanggDemo`.
+
+**Outputs** (also readable via `./scripts/demo-status.sh`):
+
+- EKS cluster name
+- S3 bucket
+- ECR repository URIs
+- IRSA role ARNs
+
+### Step 3 — Grant kubectl access (first time only)
+
+If `kubectl get nodes` fails with *"must be logged in"*:
+
+```bash
+./scripts/grant-eks-access.sh
+```
+
+This enables `API_AND_CONFIG_MAP` auth and grants your IAM principal cluster admin.
+
+### Step 4 — Bootstrap cluster add-ons (~5–10 min)
+
+```bash
+./scripts/bootstrap.sh
+```
+
+Installs:
+
+- EBS CSI driver (Qdrant persistent volumes)
+- AWS Load Balancer Controller
+- External Secrets Operator
+- Cluster autoscaler
+- Base namespaces, `gp3` StorageClass, ConfigMaps
+
+### Step 5 — Build images and deploy apps (~10–15 min)
+
+```bash
+./scripts/deploy.sh
+```
+
+This:
+
+1. Logs in to ECR
+2. Builds and pushes `agents`, `ingestion`, `ui` Docker images
+3. Applies Kubernetes manifests with substituted image URIs and IRSA ARNs
+4. Creates `app-secrets` in each namespace
+
+At the end, note the **UI URL**:
+
+```bash
+kubectl get svc showcase-ui -n showcase
+# EXTERNAL-IP or hostname → http://<hostname>
+```
+
+### Step 6 — Verify
+
+```bash
+./scripts/demo-status.sh
+kubectl get pods -n showcase -n agents -n rag
+curl http://<UI-URL>/api/health
+```
+
+---
+
+## Configuration reference
+
+### Environment variables (`.env`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AWS_REGION` | `us-east-1` | AWS region |
+| `CLUSTER_NAME` | `kube-rag-langg` | EKS cluster name |
+| `LANGSMITH_API_KEY` | — | LangSmith Cloud tracing |
+| `LANGSMITH_PROJECT` | `research-showcase` | Trace project name |
+| `LLM_PROVIDER` | `bedrock` | `bedrock` or `openai` |
+| `BEDROCK_REGION` | `us-east-1` | Bedrock region |
+| `DEFAULT_LLM_MODEL` | Claude 3.5 Sonnet | Bedrock model ID |
+| `DEFAULT_EMBEDDING_MODEL` | Titan Embed v2 | Bedrock embedding model |
+| `TAVILY_API_KEY` | — | Optional web search |
+| `MAX_RESEARCHER_PARALLEL` | `2` | Parallel researcher agents |
+| `DEMO_MODE` | `true` | Demo sizing flag |
+| `ENABLE_MONITORING` | `false` | Skip Prometheus/Grafana |
+
+### CDK context (`cdk/cdk.json`)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `clusterName` | `kube-rag-langg` | EKS cluster name |
+| `adminPrincipalArn` | IAM user ARN | Auto-granted EKS admin on deploy |
+| `demoMode` | `true` | Minimal infra |
+| `nodeInstanceType` | `t3.large` | Worker instance type |
+| `nodeMinSize` | `0` | Scale to zero when stopped |
+| `nodeMaxSize` | `2` | Max nodes |
+| `nodeDesiredSize` | `1` | Nodes at deploy time |
+
+---
+
+## Using the showcase
+
+### Access the UI
+
+1. Get the LoadBalancer URL:
+   ```bash
+   kubectl get svc showcase-ui -n showcase -o jsonpath='http://{.status.loadBalancer.ingress[0].hostname}'
+   ```
+2. Open in a browser.
+
+### Run a research demo
+
+1. **Enter a research topic** in the text area (e.g. *"Impact of RAG on enterprise knowledge management"*).
+2. **Optional — upload documents** for RAG:
+   - Choose a PDF, TXT, MD, or HTML file
+   - Click **Upload & index**
+   - Wait for *"Indexed N chunks"*
+3. Click **Start research run**.
+4. Watch **Live progress** events stream in.
+5. Read the **Research report** when complete.
+6. Click **View trace in LangSmith** (if `LANGSMITH_API_KEY` is set).
+
+### API endpoints (via UI gateway)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/health` | Health check |
+| `POST` | `/api/ingest/file` | Upload document (multipart) |
+| `POST` | `/api/research/stream` | Start research (SSE stream) |
+
+Direct ingestion API (in-cluster):
+
+```bash
+kubectl port-forward -n rag svc/ingestion 8001:8001
+curl -X POST http://localhost:8001/ingest/url \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://example.com/doc.html","topic":"my-topic"}'
+```
+
+---
+
+## Research agent workflow
+
+The LangGraph graph (`agents/src/research_team/graph.py`) runs:
+
+```
+START → Coordinator → Researchers (parallel) → Critic → [loop or] Synthesizer → END
+```
+
+| Agent | Role |
+|-------|------|
+| **Coordinator** | Decomposes topic into sub-questions |
+| **Researchers** | Each investigates one sub-question using `rag_search` + optional `web_search` |
+| **Critic** | Finds gaps, contradictions; decides if ready to synthesize |
+| **Synthesizer** | Produces markdown report with citations |
+
+### Tools available to researchers
+
+| Tool | Description |
+|------|-------------|
+| `rag_search` | Query Qdrant vector store for uploaded documents |
+| `web_search` | Tavily web search (requires `TAVILY_API_KEY`) |
+| `trigger_ingestion` | Ingest a URL into the vector store mid-run |
+
+### Tuning
+
+In `.env` or ConfigMap:
+
+- `MAX_RESEARCHER_PARALLEL=2` — fewer parallel agents = lower Bedrock cost
+- `RAG_TOP_K=6` — chunks retrieved per query
+- `CHUNK_SIZE` / `CHUNK_OVERLAP` — ingestion granularity
+
+---
+
+## RAG document ingestion
+
+### Flow
+
+```
+Upload (UI) → S3 (raw) → Ingestion worker → chunk → Bedrock embed → Qdrant upsert
+```
+
+### Supported formats
+
+- PDF (`.pdf`)
+- Plain text (`.txt`)
+- Markdown (`.md`)
+- HTML (`.html`)
+
+### Collections
+
+Documents are scoped by **topic** and **collection** (default: `research_docs`). Use the same collection name in the UI when researching.
+
+### Verify indexed documents
+
+```bash
+kubectl port-forward -n rag svc/qdrant 6333:6333
+curl http://localhost:6333/collections/research_docs
+```
+
+---
+
+## Observability
+
+### LangSmith Cloud
+
+All agent LLM calls and graph steps are traced when `LANGSMITH_API_KEY` is set.
+
+- Project: `research-showcase` (configurable)
+- URL: [smith.langchain.com](https://smith.langchain.com)
+- No self-hosted license required
+
+### Kubernetes
+
+```bash
+# Pod status
+kubectl get pods -A | grep -E 'showcase|agents|rag'
+
+# Agent logs
+kubectl logs -n agents -l app=research-agents -f
+
+# Ingestion logs
+kubectl logs -n rag -l app=ingestion -f
+```
+
+### Optional Prometheus/Grafana
+
+Set `ENABLE_MONITORING=true` before `./scripts/deploy.sh` to install kube-prometheus-stack.
+
+---
+
+## Demo lifecycle (stop/start/park)
+
+Designed for **intermittent demos** to minimize cost. See [DEMO_COSTS.md](./DEMO_COSTS.md).
+
+| Action | Command | When |
+|--------|---------|------|
+| **Stop** (end of day) | `./scripts/demo-stop.sh` | Scale pods + nodes to 0, remove LB |
+| **Start** (next demo) | `./scripts/demo-start.sh` | ~5 min warmup |
+| **Status** | `./scripts/demo-status.sh` | Check state + cost estimate |
+| **Park** (long break) | `./scripts/demo-park.sh` | `cdk destroy` — near-zero cost |
+
+### Typical week
+
+```bash
+# Monday
+./scripts/demo-start.sh
+
+# ... run demos ...
+
+# Friday
+./scripts/demo-stop.sh
+
+# Vacation
+DEMO_PARK_CONFIRM=yes ./scripts/demo-park.sh
+```
+
+---
+
+## Troubleshooting
+
+### `kubectl` — "must be logged in" / credentials error
+
+```bash
+./scripts/grant-eks-access.sh
+aws eks update-kubeconfig --region us-east-1 --name kube-rag-langg
+kubectl get nodes
+```
+
+### `docker: command not found`
+
+```bash
+brew install docker colima
+colima start --cpu 4 --memory 8
+./scripts/deploy.sh
+```
+
+### Bedrock `AccessDeniedException`
+
+Enable model access in **AWS Console → Bedrock → Model access**.
+
+### Empty RAG results
+
+1. Upload documents **before** running research
+2. Use the same **collection** name in upload and research
+3. Check ingestion logs: `kubectl logs -n rag -l app=ingestion`
+
+### Qdrant PVC pending
+
+```bash
+kubectl get storageclass gp3
+kubectl get addon aws-ebs-csi-driver --cluster-name kube-rag-langg
+./scripts/bootstrap.sh   # re-run if EBS CSI missing
+```
+
+### UI LoadBalancer pending
+
+Wait 2–3 minutes. Ensure ALB controller is running:
+
+```bash
+kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller
+```
+
+### CDK deploy failures
+
+| Error | Fix |
+|-------|-----|
+| `namespaces "rag" not found` | Fixed in CDK — namespaces created before IRSA |
+| `unsupported Kubernetes version` | Use K8s 1.32 in `demo-stack.ts` |
+| `clusterLogging parameter is required` | Do not pass empty `clusterLogging` |
+| Orphaned S3 bucket | Delete bucket, redeploy |
+
+Recovery script:
+
+```bash
+./scripts/recover-state.sh
+./scripts/infra-deploy.sh
+```
+
+---
+
+## Local development
+
+Run without AWS (~$0):
+
+```bash
+cp .env.example .env
+docker compose up -d
+cd ui && npm install && npm run dev
+```
+
+| Service | URL |
+|---------|-----|
+| UI (dev) | http://localhost:3000 |
+| API gateway | http://localhost:8000 |
+| LangGraph | http://localhost:8123 |
+| Ingestion | http://localhost:8001 |
+| Qdrant | http://localhost:6333 |
+
+LangGraph dev server:
+
+```bash
+cd agents
+pip install -e ".[dev]"
+langgraph dev
+```
+
+---
+
+## Upgrading and redeploying
+
+### App code only (no infra changes)
+
+```bash
+./scripts/deploy.sh
+```
+
+Rebuilds images, pushes to ECR, rolls out deployments.
+
+### Infrastructure changes
+
+```bash
+cd cdk && npm run build && npx cdk diff
+./scripts/infra-deploy.sh
+```
+
+### Full fresh deploy
+
+```bash
+./scripts/demo-park.sh          # destroy infra
+./scripts/infra-deploy.sh
+./scripts/grant-eks-access.sh   # if needed
+./scripts/bootstrap.sh
+./scripts/deploy.sh
+```
+
+### Update agent image only
+
+```bash
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+docker build -t ${ACCOUNT}.dkr.ecr.us-east-1.amazonaws.com/kube-rag-langg/agents:latest ./agents
+docker push ${ACCOUNT}.dkr.ecr.us-east-1.amazonaws.com/kube-rag-langg/agents:latest
+kubectl rollout restart deploy/research-agents -n agents
+```
+
+---
+
+## Related documentation
+
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE_DIAGRAM.md](./ARCHITECTURE_DIAGRAM.md) | Architecture diagrams (Mermaid) |
+| [architecture-diagram.html](./architecture-diagram.html) | Browser-viewable diagrams |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Design decisions |
+| [DEMO_COSTS.md](./DEMO_COSTS.md) | Cost breakdown and lifecycle |
+| [RUNBOOK.md](./RUNBOOK.md) | Operator quick reference |
+| [../README.md](../README.md) | Project overview |
+

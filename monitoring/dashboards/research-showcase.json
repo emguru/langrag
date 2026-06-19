@@ -1,0 +1,47 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 0,
+  "panels": [
+    {
+      "title": "Ingestion — documents/min",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "rate(ingestion_documents_total[5m]) * 60",
+          "legendFormat": "{{source_type}}"
+        }
+      ]
+    },
+    {
+      "title": "Ingestion — chunks indexed",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "rate(ingestion_chunks_total[5m])",
+          "legendFormat": "chunks/s"
+        }
+      ]
+    },
+    {
+      "title": "Agent pod CPU",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"agents\"}[5m])) by (pod)",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["showcase", "rag", "langgraph"],
+  "title": "Research Showcase Overview",
+  "uid": "research-showcase",
+  "version": 1
+}

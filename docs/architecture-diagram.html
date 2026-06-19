@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kube RAG LangGraph — Architecture</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --card: #ffffff;
+      --border: #d5dbdb;
+      --text: #232f3e;
+      --muted: #545b64;
+      --header: #232f3e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      line-height: 1.5;
+    }
+    header {
+      background: var(--header);
+      color: #fff;
+      padding: 1.5rem 2rem;
+    }
+    header h1 { margin: 0 0 0.25rem; font-size: 1.35rem; }
+    header p { margin: 0; opacity: 0.85; font-size: 0.95rem; }
+    nav { margin-top: 1rem; }
+    nav a { color: #fff; margin-right: 1.25rem; }
+    main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 1.5rem 2rem 3rem;
+    }
+    section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    section h2 {
+      margin: 0 0 0.25rem;
+      font-size: 1.1rem;
+    }
+    section p.desc {
+      margin: 0 0 1rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .mermaid {
+      overflow-x: auto;
+      text-align: center;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+    }
+    th { background: #f2f3f3; }
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.75rem;
+      font-size: 0.9rem;
+    }
+    .legend div {
+      padding: 0.75rem;
+      background: #f2f3f3;
+      border-radius: 8px;
+    }
+    .legend strong { display: block; margin-bottom: 0.25rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Kube RAG LangGraph — Deployed Architecture</h1>
+    <p>CDK stack <code>KubeRagLanggDemo</code> · EKS cluster <code>kube-rag-langg</code> · demo mode</p>
+    <nav>
+      <a href="ARCHITECTURE_DIAGRAM.md">Markdown source</a>
+      <a href="BUILD_AND_USAGE.md">Build &amp; Usage</a>
+      <a href="DEMO_COSTS.md">Costs</a>
+    </nav>
+  </header>
+
+  <main>
+    <section>
+      <h2>Deployed components</h2>
+      <p class="desc">Everything created by <code>infra-deploy.sh</code>, <code>bootstrap.sh</code>, and <code>deploy.sh</code>.</p>
+      <div class="legend">
+        <div><strong>CDK / CloudFormation</strong>VPC, EKS, S3, ECR, IRSA, Secrets Manager</div>
+        <div><strong>Kubernetes apps</strong>Showcase UI, LangGraph agents, Ingestion, Qdrant, Redis</div>
+        <div><strong>Add-ons</strong>ALB controller, EBS CSI, autoscaler, external-secrets</div>
+        <div><strong>External SaaS</strong>Bedrock, LangSmith Cloud, Tavily (optional)</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>System overview</h2>
+      <p class="desc">User traffic enters via an internet-facing LoadBalancer; agents call Bedrock and Qdrant inside the cluster.</p>
+      <pre class="mermaid">
+flowchart TB
+  subgraph external["Outside AWS"]
+    User["Demo user"]
+    LangSmith["LangSmith Cloud"]
+    Tavily["Tavily optional"]
+  end
+
+  subgraph aws["AWS Account us-east-1"]
+    CDK["CDK KubeRagLanggDemo"]
+
+    subgraph vpc["VPC"]
+      NAT["NAT Gateway"]
+      NLB["NLB showcase-ui"]
+
+      subgraph eks["EKS kube-rag-langg K8s 1.32"]
+        subgraph showcase["showcase"]
+          UI["Showcase UI React + FastAPI"]
+        end
+        subgraph agents["agents"]
+          LG["LangGraph research-agents"]
+        end
+        subgraph rag["rag"]
+          Ing["Ingestion API"]
+          Qdrant["Qdrant EBS"]
+          Redis["Redis"]
+        end
+        subgraph system["kube-system"]
+          ALB["ALB Controller"]
+          EBS["EBS CSI"]
+        end
+        Node["t3.large node group"]
+      end
+
+      S3["S3 documents"]
+      ECR["ECR images"]
+      Bedrock["Amazon Bedrock"]
+    end
+  end
+
+  User --> NLB --> UI
+  UI --> LG
+  UI --> Ing
+  LG --> Qdrant
+  LG --> Bedrock
+  LG -.-> LangSmith
+  LG -.-> Tavily
+  Ing --> S3
+  Ing --> Qdrant
+  Ing --> Bedrock
+  CDK --> vpc
+  CDK --> S3
+  CDK --> ECR
+  ECR -.-> Node
+  ALB --> NLB
+  EBS --> Qdrant
+  NAT --> Bedrock
+      </pre>
+    </section>
+
+    <section>
+      <h2>Research run sequence</h2>
+      <p class="desc">What happens when a user submits a research topic in the showcase UI.</p>
+      <pre class="mermaid">
+sequenceDiagram
+  actor User
+  participant UI as Showcase UI
+  participant LG as research-agents
+  participant Q as Qdrant
+  participant BR as Bedrock
+  participant LS as LangSmith
+
+  User->>UI: Research topic
+  UI->>LG: SSE stream
+  LG->>Q: RAG retrieval
+  Q-->>LG: Chunks
+  LG->>BR: Claude invoke
+  BR-->>LG: Response
+  Note over LG: Coordinator Researchers Critic Synthesizer
+  LG-->>UI: Stream report
+  UI-->>User: Final output
+  LG-->>LS: Traces
+      </pre>
+    </section>
+
+    <section>
+      <h2>Document ingestion sequence</h2>
+      <p class="desc">Upload path for PDFs and text files used by RAG.</p>
+      <pre class="mermaid">
+sequenceDiagram
+  actor User
+  participant UI as Showcase UI
+  participant Ing as Ingestion
+  participant S3 as S3
+  participant BR as Bedrock
+  participant Q as Qdrant
+
+  User->>UI: Upload file
+  UI->>Ing: Ingest request
+  Ing->>S3: Store raw
+  Ing->>BR: Titan embeddings
+  BR-->>Ing: Vectors
+  Ing->>Q: Upsert
+  Ing-->>UI: Done
+      </pre>
+    </section>
+
+    <section>
+      <h2>Provisioned by layer</h2>
+      <table>
+        <thead>
+          <tr><th>Script</th><th>Creates</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>infra-deploy.sh</code></td><td>VPC, EKS 1.32, node group, S3 bucket, ECR repos, IRSA roles, Secrets Manager</td></tr>
+          <tr><td><code>bootstrap.sh</code></td><td>EBS CSI, ALB controller + IRSA, External Secrets, Cluster Autoscaler, gp3 StorageClass</td></tr>
+          <tr><td><code>deploy.sh</code></td><td>Qdrant, Redis, Ingestion, research-agents, Showcase UI + LoadBalancer Service</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Demo lifecycle cost modes</h2>
+      <pre class="mermaid">
+stateDiagram-v2
+  [*] --> Parked
+  Parked --> Running: deploy stack
+  Running --> Stopped: demo-stop
+  Stopped --> Running: demo-start
+  Running --> Parked: demo-park
+  Stopped --> Parked: demo-park
+      </pre>
+      <table style="margin-top:1rem">
+        <thead><tr><th>Mode</th><th>Command</th><th>~Monthly cost</th></tr></thead>
+        <tbody>
+          <tr><td>Parked</td><td><code>demo-park.sh</code></td><td>$0–1 (S3 + ECR)</td></tr>
+          <tr><td>Stopped</td><td><code>demo-stop.sh</code></td><td>~$105 (EKS + NAT)</td></tr>
+          <tr><td>Running</td><td><code>deploy.sh</code></td><td>~$185 if 24/7 + Bedrock usage</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'neutral',
+      flowchart: { curve: 'basis', padding: 16 },
+      securityLevel: 'loose'
+    });
+  </script>
+</body>
+</html>
