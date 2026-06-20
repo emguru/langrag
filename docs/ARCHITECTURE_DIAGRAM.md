@@ -69,15 +69,14 @@ flowchart TB
   ALB --> UI
   UI -->|SSE / REST| Agents
   UI -->|upload max 100MB| Ingest
-  Agents -->|CRAG via ingestion| Ingest
+  Agents -->|SWAG+CRAG via ingestion| Ingest
   Ingest -->|RAG query| Qdrant
   Agents -->|InvokeModel LLM only| Bedrock
   Agents -.->|LANGSMITH_API_KEY| LangSmith
   Agents -.->|optional| Tavily
-  Ingest -->|chunk · embed · upsert| Qdrant
-  Ingest -->|CRAG grade| Bedrock
+  Ingest -->|chunk · embed · SWAG profile · upsert| Qdrant
+  Ingest -->|SWAG rerank + CRAG grade| Bedrock
   Ingest -->|read/write| S3
-  Ingest -->|embed + Haiku grader| Bedrock
   CDK --> vpc
   CDK --> S3
   CDK --> ECR
@@ -105,14 +104,16 @@ flowchart TB
 
 ---
 
-## 2. Corrective RAG (CRAG)
+## 2. Retrieval pipeline (SWAG + CRAG)
 
-Shared retrieval path for ingestion API, UI Search tab, and agent `rag_search`:
+Single Qdrant index. SWAG semantic metadata is stored on each chunk at ingest and used to rerank **before** CRAG filtering.  
+Shared path for ingestion `/rag/search`, UI Search tab, and agent `rag_search` (default mode: `swag_crag`).
 
 ```mermaid
 flowchart LR
   Q[Query] --> R[Vector retrieve · Qdrant]
-  R --> G[Haiku relevance grader]
+  R --> S[SWAG rerank<br/>Haiku query profile]
+  S --> G[CRAG · Haiku relevance grader]
   G -->|relevant| F[Return filtered chunks]
   G -->|ambiguous| RW[Rewrite query · re-retrieve]
   RW --> R
@@ -120,7 +121,8 @@ flowchart LR
   W --> F
 ```
 
-Configure with `CRAG_ENABLED`, `CRAG_GRADER_MODEL` (Haiku) on ingestion; agents call `/rag/search?crag=true`.
+**Modes** (UI Search tab): `baseline` · `swag` · `crag` · `swag_crag` (default).  
+Configure with `SWAG_ENABLED`, `CRAG_ENABLED`, and Haiku model IDs on ingestion ConfigMap.
 
 ---
 
@@ -132,7 +134,7 @@ sequenceDiagram
   participant ALB as ALB + Cognito
   participant UI as Showcase UI<br/>(FastAPI)
   participant LG as LangGraph<br/>research-agents
-  participant Ing as Ingestion CRAG
+  participant Ing as Ingestion API
   participant Q as Qdrant
   participant BR as Amazon Bedrock
   participant LS as LangSmith Cloud
@@ -143,11 +145,11 @@ sequenceDiagram
   ALB->>UI: Forward to showcase-ui
   User->>UI: Enter research topic
   UI->>LG: POST /runs (SSE stream)
-  LG->>Ing: POST /rag/search (CRAG)
-  Ing->>Q: Vector retrieve
-  Q-->>Ing: Candidate chunks
-  Ing->>BR: Haiku grade relevance
-  BR-->>Ing: Graded chunks
+  LG->>Ing: POST /rag/search (swag_crag)
+  Ing->>Q: Vector retrieve candidates
+  Q-->>Ing: Chunks + SWAG metadata
+  Ing->>BR: Haiku SWAG rerank + CRAG grade
+  BR-->>Ing: Reranked / graded chunks
   Ing-->>LG: Filtered hits or web_fallback
   LG->>BR: Claude Sonnet synthesis
   BR-->>LG: LLM response
@@ -180,7 +182,9 @@ sequenceDiagram
   Ing->>Ing: Chunk document
   Ing->>BR: Titan Embeddings
   BR-->>Ing: Vectors
-  Ing->>Q: Upsert with metadata
+  Ing->>BR: Haiku SWAG chunk profiles
+  BR-->>Ing: Semantic metadata
+  Ing->>Q: Upsert vectors + SWAG payload
   Ing-->>UI: Job complete
   UI-->>User: Ready for RAG queries
 ```
@@ -253,7 +257,7 @@ flowchart LR
 
   subgraph perms["Permissions"]
     P1["bedrock:InvokeModel*<br/>Claude model only"]
-    P2["bedrock:InvokeModel<br/>Titan embed + Haiku CRAG grader"]
+    P2["bedrock:InvokeModel<br/>Titan embed + Haiku<br/>SWAG profiles + CRAG grader"]
     P3["s3:GetObject · PutObject"]
     P4["elasticloadbalancing:*"]
   end

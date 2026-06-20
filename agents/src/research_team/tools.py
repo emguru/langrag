@@ -73,8 +73,16 @@ def _format_web_hits(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 @tool
 def rag_search(query: str, collection: str = "") -> str:
-    """Search uploaded documents using Corrective RAG (grade, filter, web fallback)."""
+    """Search uploaded documents using SWAG reranking and/or Corrective RAG."""
     collection = collection or settings.qdrant_collection
+    if settings.swag_enabled and settings.crag_enabled:
+        mode = "swag_crag"
+    elif settings.swag_enabled:
+        mode = "swag"
+    elif settings.crag_enabled:
+        mode = "crag"
+    else:
+        mode = "baseline"
     try:
         with httpx.Client(timeout=120.0) as client:
             resp = client.post(
@@ -83,7 +91,7 @@ def rag_search(query: str, collection: str = "") -> str:
                     "query": query,
                     "collection": collection,
                     "top_k": settings.rag_top_k,
-                    "crag": settings.crag_enabled,
+                    "mode": mode,
                 },
             )
             resp.raise_for_status()
@@ -93,6 +101,7 @@ def rag_search(query: str, collection: str = "") -> str:
 
     hits = data.get("hits") or []
     crag = data.get("crag") or {}
+    swag = data.get("swag") or {}
     action = crag.get("action")
 
     if action == "web_fallback" or (not hits and settings.crag_enabled):
@@ -111,9 +120,11 @@ def rag_search(query: str, collection: str = "") -> str:
     if not hits:
         return "No relevant documents found in the vector store."
 
-    payload = {"hits": hits}
+    payload = {"hits": hits, "mode": data.get("mode", mode)}
     if crag:
         payload["crag"] = crag
+    if swag:
+        payload["swag"] = swag
     return json.dumps(payload, indent=2)
 
 

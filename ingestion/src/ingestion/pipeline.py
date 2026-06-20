@@ -13,6 +13,7 @@ from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from ingestion.config import settings
 from ingestion.limits import read_response_limited
+from ingestion.swag.profile import SWAGProfileGenerator
 from ingestion.url_safety import UnsafeUrlError, validate_fetch_url
 
 
@@ -88,6 +89,7 @@ def embed_and_upsert(
 
     embedder = get_embedder()
     client = QdrantClient(url=settings.qdrant_url)
+    profile_generator = SWAGProfileGenerator() if settings.swag_enabled else None
 
     # Probe vector size
     sample = embedder.embed_documents(["dimension probe"])
@@ -99,15 +101,24 @@ def embed_and_upsert(
         texts = [c["text"] for c in batch]
         vectors = embedder.embed_documents(texts)
         for chunk, vector in zip(batch, vectors):
+            payload = {
+                **chunk,
+                "topic": topic,
+                **({"document_id": doc_id} if doc_id else {}),
+            }
+            if profile_generator:
+                source_name = str(chunk.get("source", "unknown")).split("/")[-1]
+                profile = profile_generator.generate_chunk_profile(
+                    chunk["text"],
+                    source_filename=source_name,
+                    page_number=chunk.get("page"),
+                )
+                payload["swag_profile"] = profile.model_dump()
             points.append(
                 PointStruct(
                     id=str(uuid.uuid4()),
                     vector=vector,
-                    payload={
-                        **chunk,
-                        "topic": topic,
-                        **({"document_id": doc_id} if doc_id else {}),
-                    },
+                    payload=payload,
                 )
             )
 

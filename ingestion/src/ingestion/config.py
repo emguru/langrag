@@ -31,5 +31,15 @@ class Settings(BaseSettings):
     crag_ambiguous_score: float = 0.35
     crag_grade_chunk_chars: int = 600
 
+    # SWAG (Semantic Weighted Augmented Generation)
+    swag_enabled: bool = True
+    swag_ingest_profiles: bool = True
+    swag_grader_model: str = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+    swag_retrieval_candidates: int = 20
+    swag_vector_weight: float = 0.65
+    swag_weight: float = 0.30
+    swag_metadata_weight: float = 0.05
+    swag_persist_profiles: bool = True
+
 
 settings = Settings()

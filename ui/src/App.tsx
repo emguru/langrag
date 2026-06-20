@@ -16,6 +16,12 @@ type Finding = {
 };
 type RagHit = {
   score?: number;
+  vector_score?: number;
+  swag_score?: number;
+  metadata_boost?: number;
+  swag_explanation?: string;
+  swag_rank?: number;
+  relevance?: string;
   text: string;
   source?: string;
   page?: number;
@@ -23,6 +29,13 @@ type RagHit = {
   chunk_index?: number;
   document_id?: string;
   id?: string;
+};
+type SearchMode = "baseline" | "swag" | "crag" | "swag_crag";
+type RankChange = {
+  key: string;
+  baseline_rank: number | null;
+  augmented_rank: number | null;
+  rank_delta: number | null;
 };
 type DocumentRow = {
   source: string;
@@ -43,10 +56,43 @@ type PreviewData = {
   preview_truncated: boolean;
 };
 
+const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
+  baseline: "Vector only",
+  swag: "Vector → SWAG",
+  crag: "Vector → CRAG",
+  swag_crag: "Vector → SWAG → CRAG",
+};
+
+const PIPELINE_STEPS: Record<SearchMode, string> = {
+  baseline: "Vector search",
+  swag: "Vector search → SWAG rerank",
+  crag: "Vector search → CRAG filter",
+  swag_crag: "Vector search → SWAG rerank → CRAG filter",
+};
+
 const DEFAULT_COLLECTION = "research_docs";
 const SESSION_THREAD_KEY = "researchThreadId";
 const SESSION_CHECKPOINT_KEY = "researchCheckpoint";
 type Tab = "research" | "ingest" | "search" | "library";
+
+function hitPreview(text: string, max = 180): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max - 1)}…`;
+}
+
+function renderHitScores(hit: RagHit, mode: SearchMode): string {
+  const parts: string[] = [];
+  if (hit.score != null) parts.push(`score ${hit.score.toFixed(3)}`);
+  if (mode !== "baseline" && hit.vector_score != null) {
+    parts.push(`vec ${hit.vector_score.toFixed(3)}`);
+  }
+  if ((mode === "swag" || mode === "swag_crag") && hit.swag_score != null) {
+    parts.push(`swag ${hit.swag_score.toFixed(3)}`);
+  }
+  if (hit.relevance) parts.push(hit.relevance);
+  return parts.join(" · ");
+}
 
 function asText(value: unknown): string {
   if (typeof value === "string") return value;
@@ -136,8 +182,16 @@ export default function App() {
   const [ragHits, setRagHits] = useState<RagHit[]>([]);
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchMode, setSearchMode] = useState<SearchMode>("swag_crag");
+  const [compareBaseline, setCompareBaseline] = useState(true);
   const [searchResults, setSearchResults] = useState<RagHit[]>([]);
+  const [searchBaseline, setSearchBaseline] = useState<RagHit[]>([]);
   const [searchCrag, setSearchCrag] = useState<Record<string, unknown> | null>(null);
+  const [searchComparison, setSearchComparison] = useState<{
+    baseline_count: number;
+    augmented_count: number;
+    rank_changes: RankChange[];
+  } | null>(null);
   const [searchBusy, setSearchBusy] = useState(false);
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [stats, setStats] = useState<{ total_points: number; document_count: number; topics: string[] } | null>(null);
@@ -236,7 +290,7 @@ export default function App() {
 
   async function uploadDocument() {
     if (!file || !topic) return;
-    setIngestStatus("Indexing...");
+    setIngestStatus("Indexing…");
     const form = new FormData();
     form.append("file", file);
     form.append("topic", topic);
@@ -256,7 +310,9 @@ export default function App() {
     if (!searchQuery.trim()) return;
     setSearchBusy(true);
     setSearchResults([]);
+    setSearchBaseline([]);
     setSearchCrag(null);
+    setSearchComparison(null);
     const resp = await fetch("/api/rag/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -265,18 +321,19 @@ export default function App() {
         collection: DEFAULT_COLLECTION,
         top_k: 8,
         topic: topic || undefined,
-        crag: true,
+        mode: searchMode,
+        compare: compareBaseline,
       }),
     });
     const data = await resp.json();
     setSearchBusy(false);
     if (!resp.ok) {
-      setSearchResults([]);
-      setSearchCrag(null);
       return;
     }
     setSearchResults(data.hits || []);
+    setSearchBaseline(data.baseline_hits || []);
     setSearchCrag(data.crag || null);
+    setSearchComparison(data.comparison || null);
   }
 
   async function loadChunks(source: string) {
@@ -797,9 +854,10 @@ export default function App() {
       {tab === "search" && (
         <div className="grid">
           <section className="card">
-            <h2>Search indexed documents (CRAG)</h2>
+            <h2>Search indexed documents</h2>
             <p className="hint">
-              Corrective RAG: retrieve → grade with Haiku → filter → rewrite if ambiguous.
+              Upload indexes chunks once (vectors + semantic metadata). Each search runs the
+              selected pipeline automatically — SWAG reranks before CRAG when both are enabled.
             </p>
             <input
               value={searchQuery}
@@ -807,31 +865,55 @@ export default function App() {
               placeholder="Query your indexed documents..."
               onKeyDown={(e) => e.key === "Enter" && runSearch()}
             />
+            <fieldset className="mode-selector">
+              <legend>Retrieval pipeline</legend>
+              {(Object.keys(SEARCH_MODE_LABELS) as SearchMode[]).map((mode) => (
+                <label key={mode} className="mode-option">
+                  <input
+                    type="radio"
+                    name="search-mode"
+                    value={mode}
+                    checked={searchMode === mode}
+                    onChange={() => setSearchMode(mode)}
+                  />
+                  {SEARCH_MODE_LABELS[mode]}
+                </label>
+              ))}
+            </fieldset>
+            <label className="compare-toggle">
+              <input
+                type="checkbox"
+                checked={compareBaseline}
+                onChange={(e) => setCompareBaseline(e.target.checked)}
+              />
+              Compare against baseline vector ranking
+            </label>
             <button onClick={runSearch} disabled={searchBusy || !searchQuery.trim()}>
-              {searchBusy ? "Searching..." : "Search with CRAG"}
+              {searchBusy ? "Searching…" : `Search (${SEARCH_MODE_LABELS[searchMode]})`}
             </button>
           </section>
           <section className="card full-width">
             <h2>Results</h2>
-            {searchCrag && (
-              <p className="hint">
-                CRAG action: <strong>{String(searchCrag.action)}</strong>
-                {" · "}
-                kept {String(searchCrag.kept ?? 0)} / {String(searchCrag.retrieved ?? 0)} chunks
-                {searchCrag.rewritten_query
-                  ? ` · rewritten: ${String(searchCrag.rewritten_query)}`
-                  : ""}
-              </p>
-            )}
-            {searchResults.length === 0 && <p className="hint">No results yet.</p>}
-            {searchResults.map((h, i) => (
-              <div key={i} className="hit">
-                <span className="score">
-                  {h.score != null ? h.score.toFixed(3) : "web"}
-                  {(h as RagHit & { relevance?: string }).relevance
-                    ? ` · ${(h as RagHit & { relevance?: string }).relevance}`
+            <p className="hint pipeline-status">
+              <strong>Pipeline:</strong> {PIPELINE_STEPS[searchMode]}
+              {searchCrag?.action && (searchMode === "crag" || searchMode === "swag_crag") && (
+                <>
+                  {" · CRAG "}
+                  <strong>{String(searchCrag.action)}</strong>
+                  {" · kept "}
+                  {String(searchCrag.kept ?? 0)}/{String(searchCrag.retrieved ?? 0)}
+                  {searchCrag.rewritten_query
+                    ? ` · query rewritten: ${String(searchCrag.rewritten_query)}`
                     : ""}
-                </span>
+                </>
+              )}
+            </p>
+            {searchResults.length === 0 && !searchBusy && (
+              <p className="hint">No results yet.</p>
+            )}
+            {searchResults.map((h, i) => (
+              <div key={`${h.id || h.source}-${i}`} className="hit">
+                <span className="score">#{i + 1} · {renderHitScores(h, searchMode)}</span>
                 <div>{h.text}</div>
                 <small>
                   {h.source} {h.page ? `· p.${h.page}` : ""}
@@ -839,6 +921,67 @@ export default function App() {
               </div>
             ))}
           </section>
+          {compareBaseline && searchBaseline.length > 0 && (
+            <section className="card full-width">
+              <h2>Baseline comparison (vector only)</h2>
+              <p className="hint">
+                Side-by-side with un-augmented vector search
+                {searchComparison
+                  ? ` · ${searchComparison.baseline_count} baseline vs ${searchComparison.augmented_count} augmented hits`
+                  : ""}
+              </p>
+              <div className="compare-grid">
+                <div className="compare-column">
+                  <h3>Baseline</h3>
+                  {searchBaseline.map((h, i) => (
+                    <div key={`base-${h.id || i}`} className="hit compact">
+                      <span className="score">#{i + 1} · {h.score?.toFixed(3) ?? "—"}</span>
+                      <div>{hitPreview(h.text)}</div>
+                      <small>{h.source?.split("/").pop()}</small>
+                    </div>
+                  ))}
+                </div>
+                <div className="compare-column">
+                  <h3>{SEARCH_MODE_LABELS[searchMode]}</h3>
+                  {searchResults.map((h, i) => (
+                    <div key={`aug-${h.id || i}`} className="hit compact">
+                      <span className="score">#{i + 1} · {renderHitScores(h, searchMode)}</span>
+                      <div>{hitPreview(h.text)}</div>
+                      <small>{h.source?.split("/").pop()}</small>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {searchComparison && searchComparison.rank_changes.length > 0 && (
+                <div className="rank-changes">
+                  <h3>Rank changes</h3>
+                  <ul>
+                    {searchComparison.rank_changes
+                      .filter(
+                        (change) => change.rank_delta != null && change.rank_delta !== 0
+                      )
+                      .slice(0, 12)
+                      .map((change) => (
+                        <li key={change.key}>
+                          <code>{change.key.split(":")[0].slice(-24)}</code>
+                          {" · baseline #"}
+                          {change.baseline_rank ?? "—"}
+                          {" → augmented #"}
+                          {change.augmented_rank ?? "—"}
+                          {change.rank_delta != null && change.rank_delta !== 0 && (
+                            <span className={change.rank_delta > 0 ? "rank-up" : "rank-down"}>
+                              {" "}
+                              ({change.rank_delta > 0 ? "+" : ""}
+                              {change.rank_delta})
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
 

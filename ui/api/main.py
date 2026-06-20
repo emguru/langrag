@@ -69,7 +69,9 @@ class RagSearchRequest(BaseModel):
     collection: str = DEFAULT_COLLECTION
     top_k: int = Field(default=8, ge=1, le=50)
     topic: str | None = None
-    crag: bool = True
+    mode: str = ""
+    compare: bool = False
+    crag: bool | None = None
 
 
 def _validate_collection(collection: str) -> str:

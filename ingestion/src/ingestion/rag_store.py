@@ -182,6 +182,7 @@ def search_documents(
         payload = hit.payload or {}
         hits.append(
             {
+                "id": str(hit.id),
                 "score": hit.score,
                 "text": payload.get("text", ""),
                 "source": payload.get("source", "unknown"),
@@ -189,6 +190,7 @@ def search_documents(
                 "chunk_index": payload.get("chunk_index"),
                 "topic": payload.get("topic"),
                 "document_id": payload.get("document_id"),
+                "swag_profile": payload.get("swag_profile"),
             }
         )
     return hits
@@ -220,3 +222,15 @@ def delete_document(source: str, collection: str = "") -> int:
 
     client.delete(collection_name=collection, points_selector=point_ids)
     return len(point_ids)
+
+
+def persist_swag_profile(collection: str, point_id: str, profile: dict) -> None:
+    """Persist a SWAG profile onto an existing Qdrant point."""
+    collection = _normalize_collection(collection)
+    client = _client()
+    client.set_payload(
+        collection_name=collection,
+        payload={"swag_profile": profile},
+        points=[point_id],
+    )
+

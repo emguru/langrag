@@ -17,6 +17,8 @@ data:
   MAX_RESEARCHER_PARALLEL: "2"
   RAG_TOP_K: "8"
   CRAG_ENABLED: "true"
+  SWAG_ENABLED: "true"
+  RAG_AUGMENTATION_MODE: "swag_crag"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -38,6 +40,13 @@ data:
   RAG_TOP_K: "8"
   CRAG_ENABLED: "true"
   CRAG_GRADER_MODEL: "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+  SWAG_ENABLED: "true"
+  SWAG_INGEST_PROFILES: "true"
+  SWAG_GRADER_MODEL: "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+  SWAG_RETRIEVAL_CANDIDATES: "20"
+  SWAG_VECTOR_WEIGHT: "0.65"
+  SWAG_WEIGHT: "0.30"
+  SWAG_METADATA_WEIGHT: "0.05"
 ---
 apiVersion: v1
 kind: ConfigMap

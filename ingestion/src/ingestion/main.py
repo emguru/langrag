@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from prometheus_client import Counter, generate_latest
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 from starlette.responses import PlainTextResponse
 
 from ingestion.config import settings
@@ -20,9 +20,8 @@ from ingestion.rag_store import (
     delete_document,
     list_chunks,
     list_documents,
-    search_documents,
 )
-from ingestion.crag import search_with_crag
+from ingestion.augmentation import search_with_augmentation
 
 INGEST_COUNTER = Counter("ingestion_documents_total", "Documents ingested", ["source_type"])
 CHUNK_COUNTER = Counter("ingestion_chunks_total", "Chunks indexed")
@@ -51,14 +50,36 @@ class RagSearchRequest(BaseModel):
     collection: str = ""
     top_k: int = Field(default=8, ge=1, le=50)
     topic: str | None = None
-    crag: bool = True
+    mode: str = Field(
+        default="",
+        description="baseline | swag | crag | swag_crag (legacy crag bool used if empty)",
+    )
+    compare: bool = False
+    crag: bool | None = None
+
+    @model_validator(mode="after")
+    def resolve_mode(self) -> RagSearchRequest:
+        if self.mode:
+            allowed = {"baseline", "swag", "crag", "swag_crag"}
+            if self.mode not in allowed:
+                raise ValueError(f"mode must be one of {sorted(allowed)}")
+            return self
+        if self.crag is False:
+            self.mode = "baseline"
+        elif self.crag is True or self.crag is None:
+            self.mode = "crag" if settings.crag_enabled else "baseline"
+        return self
 
 
 class RagSearchResponse(BaseModel):
     query: str
     hits: list[dict]
     collection: str
+    mode: str = "baseline"
+    swag: dict | None = None
     crag: dict | None = None
+    baseline_hits: list[dict] | None = None
+    comparison: dict | None = None
 
 
 @app.get("/health")
@@ -209,25 +230,15 @@ def rag_chunks(
 def rag_search(request: Request, body: RagSearchRequest):
     _check_search_rate_limit(request)
     collection = _normalize_collection(body.collection)
-    use_crag = body.crag and settings.crag_enabled
     try:
-        if use_crag:
-            result = search_with_crag(
-                body.query,
-                collection=collection,
-                top_k=body.top_k,
-                topic=body.topic,
-            )
-            hits = result["hits"]
-            crag_meta = result.get("crag")
-        else:
-            hits = search_documents(
-                body.query,
-                collection=collection,
-                top_k=body.top_k,
-                topic=body.topic,
-            )
-            crag_meta = None
+        result = search_with_augmentation(
+            body.query,
+            collection=collection,
+            top_k=body.top_k,
+            topic=body.topic,
+            mode=body.mode,  # type: ignore[arg-type]
+            compare=body.compare,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -235,10 +246,14 @@ def rag_search(request: Request, body: RagSearchRequest):
 
     SEARCH_COUNTER.inc()
     return RagSearchResponse(
-        query=body.query,
-        hits=hits,
-        collection=collection,
-        crag=crag_meta,
+        query=result["query"],
+        hits=result["hits"],
+        collection=result["collection"],
+        mode=result.get("mode", body.mode),
+        swag=result.get("swag"),
+        crag=result.get("crag"),
+        baseline_hits=result.get("baseline_hits"),
+        comparison=result.get("comparison"),
     )
 
 

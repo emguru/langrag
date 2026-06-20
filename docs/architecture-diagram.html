@@ -111,7 +111,7 @@
         <div><strong>CDK / CloudFormation</strong>VPC, EKS, S3, ECR, Cognito, ACM, Bedrock budget ($50/mo), model-scoped IRSA</div>
         <div><strong>Kubernetes apps</strong>Showcase UI (SSE gateway), LangGraph agents, Ingestion, Qdrant, Redis</div>
         <div><strong>Edge access</strong>HTTP NLB (active) or ALB HTTPS + Cognito (after ACM DNS validates)</div>
-        <div><strong>External SaaS</strong>Bedrock (Claude Sonnet 4.6 + Haiku CRAG grader + Titan v2), LangSmith Cloud, Tavily (optional)</div>
+        <div><strong>External SaaS</strong>Bedrock (Claude Sonnet 4.6 + Haiku SWAG/CRAG + Titan v2), LangSmith Cloud, Tavily (optional)</div>
       </div>
     </section>
 
@@ -175,7 +175,7 @@ flowchart TB
   UI --> Ing
   LG --> Qdrant
   LG --> Ing
-  Ing -->|CRAG grade| Bedrock
+  Ing -->|SWAG rerank CRAG grade| Bedrock
   LG --> Bedrock
   LG -.-> LangSmith
   LG -.-> Tavily
@@ -197,15 +197,17 @@ flowchart TB
     </section>
 
     <section>
-      <h2>Corrective RAG (CRAG) retrieval</h2>
+      <h2>Retrieval pipeline (SWAG + CRAG)</h2>
       <p class="desc">
-        Shared by ingestion <code>/rag/search</code>, UI Search tab, and agent <code>rag_search</code> tool.
-        Haiku grades chunk relevance; weak retrieval triggers query rewrite or Tavily web fallback (agents only).
+        Single Qdrant index. SWAG semantic metadata on each chunk reranks candidates <strong>before</strong> CRAG filtering.
+        Shared by ingestion <code>/rag/search</code>, UI Search tab, and agent <code>rag_search</code> (default <code>swag_crag</code>).
+        UI supports mode comparison: baseline · swag · crag · swag_crag.
       </p>
       <pre class="mermaid">
 flowchart LR
   Q[Query] --> R[Vector retrieve Qdrant]
-  R --> G[Haiku relevance grader]
+  R --> S[SWAG rerank Haiku profile]
+  S --> G[CRAG Haiku grader]
   G -->|relevant| F[Filter and return chunks]
   G -->|ambiguous| RW[Rewrite query]
   RW --> R
@@ -219,7 +221,7 @@ flowchart LR
       <h2>Research run sequence</h2>
       <p class="desc">
         UI gateway parses LangGraph SSE and streams node progress.
-        Researchers call ingestion CRAG (not raw Qdrant); traces go to LangSmith.
+        Researchers call ingestion SWAG+CRAG (not raw Qdrant); traces go to LangSmith.
       </p>
       <pre class="mermaid">
 sequenceDiagram
@@ -227,7 +229,7 @@ sequenceDiagram
   participant Edge as NLB or ALB Cognito
   participant UI as Showcase UI gateway
   participant LG as research-agents
-  participant Ing as Ingestion CRAG
+  participant Ing as Ingestion API
   participant Q as Qdrant
   participant BR as Bedrock
   participant Tavily as Tavily optional
@@ -242,12 +244,12 @@ sequenceDiagram
   LG-->>UI: SSE interrupt plan review
   User->>UI: Approve plan
   UI->>LG: POST resume
-  Note over LG,Ing: researchers use CRAG per sub-question
-  LG->>Ing: POST rag search crag true
-  Ing->>Q: Vector retrieve
-  Q-->>Ing: Candidate chunks
-  Ing->>BR: Haiku grade chunks
-  BR-->>Ing: relevant ambiguous irrelevant
+  Note over LG,Ing: researchers use swag_crag per sub-question
+  LG->>Ing: POST rag search mode swag_crag
+  Ing->>Q: Vector retrieve candidates
+  Q-->>Ing: Chunks plus SWAG metadata
+  Ing->>BR: Haiku SWAG rerank and CRAG grade
+  BR-->>Ing: Reranked graded chunks
   alt weak RAG
     Ing-->>LG: web_fallback action
     LG->>Tavily: Web search
@@ -265,7 +267,7 @@ sequenceDiagram
 
     <section>
       <h2>Document ingestion sequence</h2>
-      <p class="desc">Upload capped at 100 MB; rate limited at the API gateway.</p>
+      <p class="desc">Upload capped at 100 MB; rate limited at the API gateway. Indexing stores vectors and SWAG semantic metadata on each chunk in one pass.</p>
       <pre class="mermaid">
 sequenceDiagram
   actor User
@@ -281,9 +283,12 @@ sequenceDiagram
   User->>UI: Upload file
   UI->>Ing: Ingest request
   Ing->>S3: Store raw
+  Ing->>Ing: Chunk document
   Ing->>BR: Titan embeddings
   BR-->>Ing: Vectors
-  Ing->>Q: Upsert
+  Ing->>BR: Haiku SWAG chunk profiles
+  BR-->>Ing: Semantic metadata
+  Ing->>Q: Upsert vectors and SWAG payload
   Ing-->>UI: Done
       </pre>
     </section>
@@ -297,7 +302,7 @@ sequenceDiagram
         <tbody>
           <tr><td>Edge auth</td><td>Cognito @ ALB when ACM cert ISSUED; NLB has no auth until then</td></tr>
           <tr><td>TLS</td><td>ACM cert for <code>langrag.automatico.llc</code> (pending GoDaddy DNS validation)</td></tr>
-          <tr><td>IAM</td><td>IRSA: agents → Sonnet 4.6 + Titan embed; ingestion → Titan embed + Haiku CRAG grader</td></tr>
+          <tr><td>IAM</td><td>IRSA: agents → Sonnet 4.6 + Titan embed; ingestion → Titan embed + Haiku SWAG profiles + CRAG grader</td></tr>
           <tr><td>Secrets</td><td>AWS Secrets Manager + K8s <code>app-secrets</code> (LangSmith, S3 bucket)</td></tr>
           <tr><td>Upload cap</td><td>100 MB on UI gateway + ingestion</td></tr>
           <tr><td>Rate limits</td><td>10 ingest / 5 research per min per client IP</td></tr>

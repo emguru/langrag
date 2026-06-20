@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     # Corrective RAG
     crag_enabled: bool = True
 
+    # SWAG reranking (research agents default to swag_crag when both enabled)
+    swag_enabled: bool = True
+    rag_augmentation_mode: str = "swag_crag"
+
     # Research tuning
     max_researcher_parallel: int = 2
     max_iterations: int = 2
