@@ -896,7 +896,8 @@ export default function App() {
             <h2>Results</h2>
             <p className="hint pipeline-status">
               <strong>Pipeline:</strong> {PIPELINE_STEPS[searchMode]}
-              {searchCrag?.action && (searchMode === "crag" || searchMode === "swag_crag") && (
+              {(searchMode === "crag" || searchMode === "swag_crag") &&
+                searchCrag?.action != null && (
                 <>
                   {" · CRAG "}
                   <strong>{String(searchCrag.action)}</strong>
