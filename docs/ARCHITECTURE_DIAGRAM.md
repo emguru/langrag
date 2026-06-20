@@ -106,13 +106,15 @@ flowchart TB
 
 ## 2. Retrieval pipeline (SWAG + CRAG)
 
-Single Qdrant index. SWAG semantic metadata is stored on each chunk at ingest and used to rerank **before** CRAG filtering.  
+Single Qdrant index — **no separate SWAG vector store**. Each chunk stores Titan vectors plus `swag_profile` metadata in the same payload.  
+At ingest: vectors and SWAG profiles are written in one pass. At search: missing profiles are enriched automatically before rerank (no user re-index step).  
 Shared path for ingestion `/rag/search`, UI Search tab, and agent `rag_search` (default mode: `swag_crag`).
 
 ```mermaid
 flowchart LR
   Q[Query] --> R[Vector retrieve · Qdrant]
-  R --> S[SWAG rerank<br/>Haiku query profile]
+  R --> P[Ensure SWAG profiles<br/>auto if missing]
+  P --> S[SWAG rerank<br/>Haiku query profile]
   S --> G[CRAG · Haiku relevance grader]
   G -->|relevant| F[Return filtered chunks]
   G -->|ambiguous| RW[Rewrite query · re-retrieve]
@@ -121,7 +123,7 @@ flowchart LR
   W --> F
 ```
 
-**Modes** (UI Search tab): `baseline` · `swag` · `crag` · `swag_crag` (default).  
+**Modes** (UI Search tab): `baseline` · `swag` · `crag` · `swag_crag` (default). Optional baseline comparison side-by-side.  
 Configure with `SWAG_ENABLED`, `CRAG_ENABLED`, and Haiku model IDs on ingestion ConfigMap.
 
 ---
