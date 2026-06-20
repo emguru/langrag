@@ -26,6 +26,9 @@ aws eks wait addon-active \
   --region "${AWS_REGION}" \
   --max-attempts 30 2>/dev/null || echo "WARN: EBS CSI addon not active yet - continuing"
 
+echo "==> Configuring EBS CSI driver IRSA..."
+"${ROOT}/scripts/setup-ebs-csi-irsa.sh"
+
 if ! command -v helm &>/dev/null; then
   echo "WARN: helm not found - skipping ALB controller, external-secrets, autoscaler."
   echo "      Install helm via: brew install helm"

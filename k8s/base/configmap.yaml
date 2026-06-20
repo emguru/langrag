@@ -10,11 +10,13 @@ data:
   QDRANT_COLLECTION: "research_docs"
   INGESTION_API_URL: "http://ingestion.rag.svc.cluster.local:8001"
   BEDROCK_REGION: "us-east-1"
-  DEFAULT_LLM_MODEL: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+  BEDROCK_READ_TIMEOUT: "600"
+  DEFAULT_LLM_MODEL: "us.anthropic.claude-sonnet-4-6"
   DEFAULT_EMBEDDING_MODEL: "amazon.titan-embed-text-v2:0"
   LLM_PROVIDER: "bedrock"
-  MAX_RESEARCHER_PARALLEL: "3"
+  MAX_RESEARCHER_PARALLEL: "2"
   RAG_TOP_K: "8"
+  CRAG_ENABLED: "true"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -29,6 +31,13 @@ data:
   LLM_PROVIDER: "bedrock"
   CHUNK_SIZE: "1000"
   CHUNK_OVERLAP: "200"
+  MAX_UPLOAD_BYTES: "104857600"
+  MAX_FETCH_BYTES: "104857600"
+  RATE_LIMIT_INGEST_PER_MIN: "30"
+  RATE_LIMIT_SEARCH_PER_MIN: "30"
+  RAG_TOP_K: "8"
+  CRAG_ENABLED: "true"
+  CRAG_GRADER_MODEL: "us.anthropic.claude-3-5-haiku-20241022-v1:0"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -37,4 +46,10 @@ metadata:
   namespace: showcase
 data:
   LANGSMITH_PROJECT: "research-showcase"
-  CORS_ORIGINS: "*"
+  CORS_ORIGINS: "https://langrag.automatico.llc"
+  MAX_UPLOAD_BYTES: "104857600"
+  RATE_LIMIT_INGEST_PER_MIN: "10"
+  RATE_LIMIT_RESEARCH_PER_MIN: "2"
+  RATE_LIMIT_RAG_SEARCH_PER_MIN: "30"
+  DEFAULT_COLLECTION: "research_docs"
+  ALLOWED_COLLECTIONS: "research_docs"

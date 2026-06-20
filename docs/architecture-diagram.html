@@ -111,7 +111,7 @@
         <div><strong>CDK / CloudFormation</strong>VPC, EKS, S3, ECR, Cognito, ACM, Bedrock budget ($50/mo), model-scoped IRSA</div>
         <div><strong>Kubernetes apps</strong>Showcase UI (SSE gateway), LangGraph agents, Ingestion, Qdrant, Redis</div>
         <div><strong>Edge access</strong>HTTP NLB (active) or ALB HTTPS + Cognito (after ACM DNS validates)</div>
-        <div><strong>External SaaS</strong>Bedrock (Claude Sonnet 4.6 + Titan v2), LangSmith Cloud, Tavily (optional)</div>
+        <div><strong>External SaaS</strong>Bedrock (Claude Sonnet 4.6 + Haiku CRAG grader + Titan v2), LangSmith Cloud, Tavily (optional)</div>
       </div>
     </section>
 
@@ -174,6 +174,8 @@ flowchart TB
   UI -->|SSE event data| LG
   UI --> Ing
   LG --> Qdrant
+  LG --> Ing
+  Ing -->|CRAG grade| Bedrock
   LG --> Bedrock
   LG -.-> LangSmith
   LG -.-> Tavily
@@ -195,11 +197,29 @@ flowchart TB
     </section>
 
     <section>
+      <h2>Corrective RAG (CRAG) retrieval</h2>
+      <p class="desc">
+        Shared by ingestion <code>/rag/search</code>, UI Search tab, and agent <code>rag_search</code> tool.
+        Haiku grades chunk relevance; weak retrieval triggers query rewrite or Tavily web fallback (agents only).
+      </p>
+      <pre class="mermaid">
+flowchart LR
+  Q[Query] --> R[Vector retrieve Qdrant]
+  R --> G[Haiku relevance grader]
+  G -->|relevant| F[Filter and return chunks]
+  G -->|ambiguous| RW[Rewrite query]
+  RW --> R
+  G -->|irrelevant| W[Tavily web fallback]
+  W --> F
+  F --> A[Researcher or UI]
+      </pre>
+    </section>
+
+    <section>
       <h2>Research run sequence</h2>
       <p class="desc">
-        UI gateway parses LangGraph SSE (<code>event:</code> / <code>data:</code>) and streams node progress.
-        Graph: coordinator → researchers (3–10 min) → critic → synthesizer → report.
-        Agents call Bedrock LLM + Titan embeddings for RAG; traces go to LangSmith.
+        UI gateway parses LangGraph SSE and streams node progress.
+        Researchers call ingestion CRAG (not raw Qdrant); traces go to LangSmith.
       </p>
       <pre class="mermaid">
 sequenceDiagram
@@ -207,8 +227,10 @@ sequenceDiagram
   participant Edge as NLB or ALB Cognito
   participant UI as Showcase UI gateway
   participant LG as research-agents
+  participant Ing as Ingestion CRAG
   participant Q as Qdrant
   participant BR as Bedrock
+  participant Tavily as Tavily optional
   participant LS as LangSmith
 
   User->>Edge: HTTP or HTTPS
@@ -217,16 +239,27 @@ sequenceDiagram
   UI->>LG: POST runs stream updates
   LG-->>UI: SSE metadata run started
   LG->>LG: coordinator plan
-  LG-->>UI: SSE updates coordinator
-  Note over LG,UI: researchers node RAG plus LLM 3 to 10 min
-  LG->>Q: RAG retrieval
-  Q-->>LG: Chunks
-  LG->>BR: Titan embed plus Claude
-  BR-->>LG: Vectors and text
-  LG-->>UI: SSE updates researchers critic synthesizer
-  LG-->>UI: SSE report in synthesizer update
-  UI-->>User: Live progress and final report
-  LG-->>LS: Traces LANGSMITH_API_KEY
+  LG-->>UI: SSE interrupt plan review
+  User->>UI: Approve plan
+  UI->>LG: POST resume
+  Note over LG,Ing: researchers use CRAG per sub-question
+  LG->>Ing: POST rag search crag true
+  Ing->>Q: Vector retrieve
+  Q-->>Ing: Candidate chunks
+  Ing->>BR: Haiku grade chunks
+  BR-->>Ing: relevant ambiguous irrelevant
+  alt weak RAG
+    Ing-->>LG: web_fallback action
+    LG->>Tavily: Web search
+    Tavily-->>LG: Web snippets
+  else good RAG
+    Ing-->>LG: Filtered chunks
+  end
+  LG->>BR: Claude synthesize findings
+  LG-->>UI: SSE interrupt critique review
+  User->>UI: Synthesize or more research
+  LG-->>UI: SSE report
+  LG-->>LS: Traces
       </pre>
     </section>
 
@@ -264,7 +297,7 @@ sequenceDiagram
         <tbody>
           <tr><td>Edge auth</td><td>Cognito @ ALB when ACM cert ISSUED; NLB has no auth until then</td></tr>
           <tr><td>TLS</td><td>ACM cert for <code>langrag.automatico.llc</code> (pending GoDaddy DNS validation)</td></tr>
-          <tr><td>IAM</td><td>IRSA: agents → Sonnet 4.6 LLM + Titan embed; ingestion → Titan embed</td></tr>
+          <tr><td>IAM</td><td>IRSA: agents → Sonnet 4.6 + Titan embed; ingestion → Titan embed + Haiku CRAG grader</td></tr>
           <tr><td>Secrets</td><td>AWS Secrets Manager + K8s <code>app-secrets</code> (LangSmith, S3 bucket)</td></tr>
           <tr><td>Upload cap</td><td>100 MB on UI gateway + ingestion</td></tr>
           <tr><td>Rate limits</td><td>10 ingest / 5 research per min per client IP</td></tr>

@@ -54,8 +54,21 @@ if kubectl cluster-info &>/dev/null 2>&1; then
     fi
   done
 
-  LB="$(kubectl get svc showcase-ui -n showcase -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")"
-  [[ -n "$LB" ]] && echo "  UI URL:       http://${LB}" || echo "  UI URL:       (stopped — no LoadBalancer)"
+  POOL_ID="$(cdk_cognito_user_pool_id 2>/dev/null || true)"
+  [[ -n "$POOL_ID" && "$POOL_ID" != "None" ]] && echo "  Cognito pool: ${POOL_ID}"
+  if [[ -f "${ROOT}/.demo-access-mode" ]]; then
+    # shellcheck disable=SC1091
+    source "${ROOT}/.demo-access-mode"
+    if [[ "${ACCESS_MODE:-}" == "ingress" ]]; then
+      echo "  UI URL:       https://$(cdk_app_domain_name) (Cognito)"
+    else
+      LB="$(kubectl get svc showcase-ui -n showcase -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")"
+      [[ -n "$LB" ]] && echo "  UI URL:       http://${LB}" || echo "  UI URL:       (stopped — no LoadBalancer)"
+    fi
+  else
+    LB="$(kubectl get svc showcase-ui -n showcase -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")"
+    [[ -n "$LB" ]] && echo "  UI URL:       http://${LB}" || echo "  UI URL:       (stopped — no LoadBalancer)"
+  fi
 else
   echo "Kubernetes: NOT CONNECTED"
 fi

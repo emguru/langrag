@@ -12,6 +12,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from ingestion.config import settings
+from ingestion.limits import read_response_limited
+from ingestion.url_safety import UnsafeUrlError, validate_fetch_url
 
 
 def get_embedder():
@@ -78,7 +80,9 @@ def chunk_documents(pages: list[tuple[str, int | None]], source: str) -> list[di
     return chunks
 
 
-def embed_and_upsert(chunks: list[dict], collection: str, topic: str) -> int:
+def embed_and_upsert(
+    chunks: list[dict], collection: str, topic: str, doc_id: str | None = None
+) -> int:
     if not chunks:
         return 0
 
@@ -99,7 +103,11 @@ def embed_and_upsert(chunks: list[dict], collection: str, topic: str) -> int:
                 PointStruct(
                     id=str(uuid.uuid4()),
                     vector=vector,
-                    payload={**chunk, "topic": topic},
+                    payload={
+                        **chunk,
+                        "topic": topic,
+                        **({"document_id": doc_id} if doc_id else {}),
+                    },
                 )
             )
 
@@ -113,12 +121,26 @@ def upload_to_s3(data: bytes, key: str) -> str:
     return f"s3://{settings.s3_document_bucket}/{key}"
 
 
-async def fetch_url(url: str) -> tuple[bytes, str]:
-    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        filename = url.rstrip("/").split("/")[-1] or "document.html"
-        return resp.content, filename
+async def fetch_url(url: str, max_bytes: int | None = None) -> tuple[bytes, str]:
+    limit = max_bytes if max_bytes is not None else settings.max_fetch_bytes
+    validate_fetch_url(url)
+    current = url
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=False) as client:
+        for _ in range(5):
+            resp = await client.get(current)
+            if resp.status_code in (301, 302, 303, 307, 308):
+                location = resp.headers.get("location")
+                if not location:
+                    resp.raise_for_status()
+                next_url = str(httpx.URL(current).join(location))
+                validate_fetch_url(next_url)
+                current = next_url
+                continue
+            resp.raise_for_status()
+            filename = current.rstrip("/").split("/")[-1] or "document.html"
+            data = await read_response_limited(resp, limit)
+            return data, filename
+    raise UnsafeUrlError("Too many redirects")
 
 
 def ingest_bytes(data: bytes, filename: str, topic: str, collection: str) -> dict:
@@ -128,7 +150,7 @@ def ingest_bytes(data: bytes, filename: str, topic: str, collection: str) -> dic
 
     pages = extract_text_from_bytes(data, filename)
     chunks = chunk_documents(pages, source=source)
-    count = embed_and_upsert(chunks, collection, topic)
+    count = embed_and_upsert(chunks, collection, topic, doc_id=doc_id)
 
     return {
         "document_id": doc_id,

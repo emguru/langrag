@@ -47,9 +47,12 @@ kubectl scale deploy qdrant redis ingestion -n rag --replicas=1 2>/dev/null || t
 kubectl scale deploy research-agents -n agents --replicas=1 2>/dev/null || true
 kubectl scale deploy showcase-ui -n showcase --replicas=1 2>/dev/null || true
 
-if ! kubectl get svc showcase-ui -n showcase &>/dev/null; then
-  echo "    Recreating UI LoadBalancer..."
-  if [[ -f "${ROOT}/.demo-ui-svc.yaml" ]]; then
+if ! kubectl get svc showcase-ui -n showcase &>/dev/null && \
+   ! kubectl get ingress showcase-ui -n showcase &>/dev/null; then
+  echo "    Recreating showcase access (LoadBalancer or Cognito ingress)..."
+  if [[ -f "${ROOT}/.demo-deploy/showcase/ui.yaml" ]]; then
+    "${ROOT}/scripts/apply-showcase-access.sh"
+  elif [[ -f "${ROOT}/.demo-ui-svc.yaml" ]]; then
     kubectl apply -f "${ROOT}/.demo-ui-svc.yaml"
   else
     UI_MANIFEST="$(find "${ROOT}/.demo-deploy" -name "ui.yaml" 2>/dev/null | head -1)"
@@ -64,5 +67,18 @@ kubectl wait --for=condition=Available deployment --all -n showcase --timeout=30
 
 echo ""
 echo "==> Demo started!"
-LB="$(kubectl get svc showcase-ui -n showcase -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "(pending)")"
-echo "    UI URL: http://${LB}"
+if [[ -f "${ROOT}/.demo-access-mode" ]]; then
+  # shellcheck disable=SC1091
+  source "${ROOT}/.demo-access-mode"
+  if [[ "${ACCESS_MODE:-}" == "ingress" ]]; then
+    APP_DOMAIN="$(cdk_app_domain_name)"
+    echo "    UI URL:       https://${APP_DOMAIN}  (Cognito)"
+  else
+    LB="$(kubectl get svc showcase-ui -n showcase -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "(pending)")"
+    echo "    UI URL:       http://${LB}"
+  fi
+else
+  LB="$(kubectl get svc showcase-ui -n showcase -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "(pending)")"
+  ING="$(kubectl get ingress showcase-ui -n showcase -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")"
+  [[ -n "$ING" ]] && echo "    UI URL:       https://${ING}" || echo "    UI URL:       http://${LB}"
+fi

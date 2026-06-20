@@ -18,9 +18,10 @@ Complete instructions for building, deploying, operating, and using the **Kube R
 8. [RAG document ingestion](#rag-document-ingestion)
 9. [Observability](#observability)
 10. [Demo lifecycle (stop/start/park)](#demo-lifecycle-stopstartpark)
-11. [Troubleshooting](#troubleshooting)
-12. [Local development](#local-development)
-13. [Upgrading and redeploying](#upgrading-and-redeploying)
+11. [Security (HTTPS, Cognito, guardrails)](#security-https-cognito-guardrails)
+12. [Troubleshooting](#troubleshooting)
+13. [Local development](#local-development)
+14. [Upgrading and redeploying](#upgrading-and-redeploying)
 
 ---
 
@@ -38,8 +39,10 @@ This project deploys a **multi-agent research team** (LangGraph) with **RAG** (r
 | Container registry | Amazon ECR |
 | Tracing | LangSmith Cloud (API key) |
 | UI | React + FastAPI gateway |
+| Edge auth | Amazon Cognito @ ALB (HTTPS) |
+| Guardrails | Upload cap, rate limits, SSRF block, NetworkPolicies |
 
-**Demo mode** optimizes for intermittent use: no RDS, no ElastiCache, single node pool, scale-to-zero support.
+**Demo mode** optimizes for intermittent internal demos: no RDS, no ElastiCache, single node pool, scale-to-zero support, and a **security-conscious** baseline (see [SECURITY.md](./SECURITY.md)).
 
 ---
 
@@ -59,9 +62,9 @@ This project deploys a **multi-agent research team** (LangGraph) with **RAG** (r
 
 ### AWS account
 
-- IAM permissions for: CloudFormation, EKS, EC2, VPC, S3, ECR, IAM, Secrets Manager, Bedrock
+- IAM permissions for: CloudFormation, EKS, EC2, VPC, S3, ECR, IAM, Secrets Manager, Bedrock, Cognito, ACM, Budgets
 - **Bedrock model access** enabled in the AWS console:
-  - `anthropic.claude-3-5-sonnet-20241022-v2:0` (or your chosen Claude model)
+  - `us.anthropic.claude-sonnet-4-6` inference profile (Claude Sonnet 4.6)
   - `amazon.titan-embed-text-v2:0`
 - Region: **us-east-1** (default; changeable)
 
@@ -82,8 +85,8 @@ No LangSmith self-hosted license is required.
 ```
 Demo User
     │
-    ▼
-Elastic Load Balancing (showcase-ui Service)
+    ▼ HTTPS + Cognito login
+Application Load Balancer (showcase-ui Ingress)
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -91,12 +94,13 @@ Elastic Load Balancing (showcase-ui Service)
 │  ┌─────────────┐  ┌──────────────────┐  ┌───────────────┐  │
 │  │ showcase    │  │ agents           │  │ rag           │  │
 │  │ UI + API    │─▶│ LangGraph team   │─▶│ ingestion     │  │
-│  │             │  │ research-agents  │  │ qdrant, redis │  │
+│  │ (rate limit)│  │ research-agents  │  │ qdrant, redis │  │
 │  └─────────────┘  └────────┬─────────┘  └───────┬───────┘  │
+│       NetworkPolicies: UI → agents/ingestion only           │
 └────────────────────────────┼────────────────────┼──────────┘
                              │                    │
                     Amazon Bedrock          Amazon S3
-                    (Claude + Titan)        (documents)
+                    (model-scoped IRSA)     (documents)
                              │
                     LangSmith Cloud (traces)
 ```
@@ -110,9 +114,12 @@ See the full diagram: [ARCHITECTURE_DIAGRAM.md](./ARCHITECTURE_DIAGRAM.md) or op
 | VPC | 3 AZs, public + private subnets, 1 NAT gateway |
 | EKS cluster | `kube-rag-langg`, Kubernetes 1.32 |
 | Node group | `general`, `t3.large`, min 0 / max 2 |
-| S3 bucket | `{cluster}-documents-{account}` |
+| S3 bucket | `{cluster}-documents-{account}` (encrypted, no public access) |
 | ECR repos | `agents`, `ingestion`, `ui` |
-| IAM (IRSA) | Bedrock invoke + S3 read/write for pods |
+| Cognito user pool | Admin-created users; OAuth for ALB auth |
+| ACM certificate | TLS for `appDomainName` (DNS validation) |
+| IAM (IRSA) | Model-scoped Bedrock + S3 for agents/ingestion pods |
+| AWS Budget | Bedrock spend alerts (email) |
 | Secrets Manager | App secrets placeholder |
 
 ### In-cluster workloads (`deploy.sh`)
@@ -123,6 +130,7 @@ See the full diagram: [ARCHITECTURE_DIAGRAM.md](./ARCHITECTURE_DIAGRAM.md) or op
 | `agents` | LangGraph research team server |
 | `rag` | Ingestion API, Qdrant, Redis |
 | `kube-system` | EBS CSI, ALB controller (from bootstrap) |
+| All app NS | NetworkPolicies (from `k8s/base/network-policies.yaml`) |
 
 ---
 
@@ -165,6 +173,48 @@ This runs `cdk bootstrap` (if needed) and `cdk deploy` for stack `KubeRagLanggDe
 - S3 bucket
 - ECR repository URIs
 - IRSA role ARNs
+- Cognito hosted UI URL
+- ACM certificate ARN (when `appDomainName` is set)
+
+### Step 2b — Create Cognito users
+
+```bash
+./scripts/cognito-create-user.sh you@company.com
+```
+
+Password policy: min 12 chars, upper + lower + digit. Self-sign-up is disabled.
+
+### Step 2c — Enable HTTPS + Cognito at the ALB
+
+Set your showcase domain in `cdk/cdk.json` (`appDomainName`) or run:
+
+```bash
+./scripts/enable-https-cognito.sh langrag.automatico.llc
+```
+
+Then complete **ACM DNS validation** at your domain registrar:
+
+```bash
+./scripts/print-acm-validation.sh
+```
+
+**GoDaddy** (`automatico.llc`): DNS → Manage → Add record → Type **CNAME**, Name the validation token host (without domain suffix), Value the `acm-validations.aws` target from the script output.
+
+When the certificate status is **ISSUED**:
+
+```bash
+./scripts/apply-showcase-access.sh
+```
+
+Point your domain **CNAME** to the ALB hostname:
+
+```bash
+kubectl get ingress showcase-ui -n showcase
+```
+
+Users access `https://<appDomainName>/` → Cognito login → showcase UI.
+
+Until the cert is issued, `apply-showcase-access.sh` falls back to a public HTTP LoadBalancer.
 
 ### Step 3 — Grant kubectl access (first time only)
 
@@ -203,11 +253,14 @@ This:
 3. Applies Kubernetes manifests with substituted image URIs and IRSA ARNs
 4. Creates `app-secrets` in each namespace
 
-At the end, note the **UI URL**:
+At the end, note the **UI URL** (depends on access mode):
 
 ```bash
+# HTTPS + Cognito (when ACM cert issued)
+kubectl get ingress showcase-ui -n showcase
+
+# HTTP LoadBalancer fallback
 kubectl get svc showcase-ui -n showcase
-# EXTERNAL-IP or hostname → http://<hostname>
 ```
 
 ### Step 6 — Verify
@@ -215,7 +268,8 @@ kubectl get svc showcase-ui -n showcase
 ```bash
 ./scripts/demo-status.sh
 kubectl get pods -n showcase -n agents -n rag
-curl http://<UI-URL>/api/health
+kubectl get networkpolicy -A
+curl -k https://langrag.automatico.llc/api/health   # after DNS + Cognito ingress
 ```
 
 ---
@@ -245,11 +299,27 @@ curl http://<UI-URL>/api/health
 |-----|---------|-------------|
 | `clusterName` | `kube-rag-langg` | EKS cluster name |
 | `adminPrincipalArn` | IAM user ARN | Auto-granted EKS admin on deploy |
+| `cognitoDomainPrefix` | `kube-rag-langg-demo` | Cognito hosted UI prefix |
+| `appDomainName` | `langrag.automatico.llc` | Showcase DNS name (enables ACM + ALB Cognito) |
+| `certificateArn` | `""` | Optional existing ACM cert ARN |
+| `budgetAlertEmail` | `michael@automatico.llc` | Bedrock spend alert recipient |
+| `bedrockBudgetUsd` | `50` | Monthly Bedrock budget limit |
+| `defaultLlmModel` | Claude 3.5 Sonnet ID | Agents IRSA Bedrock scope |
+| `defaultEmbeddingModel` | Titan Embed v2 ID | Ingestion IRSA Bedrock scope |
 | `demoMode` | `true` | Minimal infra |
 | `nodeInstanceType` | `t3.large` | Worker instance type |
 | `nodeMinSize` | `0` | Scale to zero when stopped |
 | `nodeMaxSize` | `2` | Max nodes |
 | `nodeDesiredSize` | `1` | Nodes at deploy time |
+
+### API guardrails (ConfigMap / env)
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MAX_UPLOAD_BYTES` | `104857600` (100 MB) | Max upload size |
+| `RATE_LIMIT_INGEST_PER_MIN` | `10` (UI), `30` (ingestion) | Ingest requests per client IP |
+| `RATE_LIMIT_RESEARCH_PER_MIN` | `5` | Research streams per client IP |
+| `CORS_ORIGINS` | `https://langrag.automatico.llc` | Allowed browser origins |
 
 ---
 
@@ -257,11 +327,16 @@ curl http://<UI-URL>/api/health
 
 ### Access the UI
 
-1. Get the LoadBalancer URL:
-   ```bash
-   kubectl get svc showcase-ui -n showcase -o jsonpath='http://{.status.loadBalancer.ingress[0].hostname}'
-   ```
-2. Open in a browser.
+**With HTTPS + Cognito (recommended):**
+
+1. Open `https://langrag.automatico.llc` (or your `appDomainName`)
+2. Log in with your Cognito user (created via `cognito-create-user.sh`)
+
+**Fallback (HTTP LoadBalancer, no edge auth):**
+
+```bash
+kubectl get svc showcase-ui -n showcase -o jsonpath='http://{.status.loadBalancer.ingress[0].hostname}'
+```
 
 ### Run a research demo
 
@@ -280,8 +355,8 @@ curl http://<UI-URL>/api/health
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/health` | Health check |
-| `POST` | `/api/ingest/file` | Upload document (multipart) |
-| `POST` | `/api/research/stream` | Start research (SSE stream) |
+| `POST` | `/api/ingest/file` | Upload document (multipart, max 100 MB, rate limited) |
+| `POST` | `/api/research/stream` | Start research (SSE stream, rate limited) |
 
 Direct ingestion API (in-cluster):
 
@@ -313,7 +388,7 @@ START → Coordinator → Researchers (parallel) → Critic → [loop or] Synthe
 
 | Tool | Description |
 |------|-------------|
-| `rag_search` | Query Qdrant vector store for uploaded documents |
+| `rag_search` | Corrective RAG via ingestion API (grade, filter, web fallback) |
 | `web_search` | Tavily web search (requires `TAVILY_API_KEY`) |
 | `trigger_ingestion` | Ingest a URL into the vector store mid-run |
 
@@ -384,13 +459,40 @@ Set `ENABLE_MONITORING=true` before `./scripts/deploy.sh` to install kube-promet
 
 ---
 
+## Security (HTTPS, Cognito, guardrails)
+
+This demo ships with a **security-conscious** baseline documented in [SECURITY.md](./SECURITY.md).
+
+| Control | Summary |
+|---------|---------|
+| **HTTPS + Cognito @ ALB** | Login required before UI; TLS terminated at ALB |
+| **Model-scoped IRSA** | Agents → LLM only; ingestion → embeddings only |
+| **Upload cap** | 100 MB max per file |
+| **Rate limits** | Per-IP limits on ingest and research endpoints |
+| **SSRF protection** | URL ingest blocks private IPs and cloud metadata |
+| **NetworkPolicies** | Showcase UI egress limited to agents + ingestion |
+| **Bedrock budget** | Email alerts at 80% actual / 100% forecast spend |
+
+### Quick commands
+
+```bash
+./scripts/enable-https-cognito.sh <domain>   # set domain + redeploy CDK
+./scripts/print-acm-validation.sh            # ACM DNS validation CNAME
+./scripts/apply-showcase-access.sh           # ALB ingress or HTTP LB fallback
+./scripts/cognito-create-user.sh <email>       # admin-create user
+```
+
+`demo-stop.sh` removes the ALB ingress or LoadBalancer (saves ~$16–20/mo). Cognito pool and budget persist until `demo-park.sh`.
+
+---
+
 ## Demo lifecycle (stop/start/park)
 
 Designed for **intermittent demos** to minimize cost. See [DEMO_COSTS.md](./DEMO_COSTS.md).
 
 | Action | Command | When |
 |--------|---------|------|
-| **Stop** (end of day) | `./scripts/demo-stop.sh` | Scale pods + nodes to 0, remove LB |
+| **Stop** (end of day) | `./scripts/demo-stop.sh` | Scale pods + nodes to 0, remove ALB/LB |
 | **Start** (next demo) | `./scripts/demo-start.sh` | ~5 min warmup |
 | **Status** | `./scripts/demo-status.sh` | Check state + cost estimate |
 | **Park** (long break) | `./scripts/demo-park.sh` | `cdk destroy` — near-zero cost |
@@ -448,13 +550,26 @@ kubectl get addon aws-ebs-csi-driver --cluster-name kube-rag-langg
 ./scripts/bootstrap.sh   # re-run if EBS CSI missing
 ```
 
-### UI LoadBalancer pending
+### UI LoadBalancer or ingress pending
 
 Wait 2–3 minutes. Ensure ALB controller is running:
 
 ```bash
 kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller
 ```
+
+For Cognito ingress, ACM certificate must be **ISSUED** first: `./scripts/print-acm-validation.sh`
+
+### Cognito login / redirect loop
+
+- Callback URL must be `https://<appDomainName>/oauth2/idpresponse`
+- User must exist and password set via `cognito-create-user.sh`
+- If user status is `FORCE_CHANGE_PASSWORD`, set permanent password with the script again
+
+### Rate limit or upload errors
+
+- `413` — file exceeds 100 MB (`MAX_UPLOAD_BYTES`)
+- `429` — too many requests; wait 60 seconds
 
 ### CDK deploy failures
 
@@ -546,6 +661,8 @@ kubectl rollout restart deploy/research-agents -n agents
 |----------|-------------|
 | [ARCHITECTURE_DIAGRAM.md](./ARCHITECTURE_DIAGRAM.md) | Architecture diagrams (Mermaid) |
 | [architecture-diagram.html](./architecture-diagram.html) | Browser-viewable diagrams |
+| [SECURITY.md](./SECURITY.md) | Auth, guardrails, data flows |
+| [COGNITO.md](./COGNITO.md) | Cognito + ACM setup |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Design decisions |
 | [DEMO_COSTS.md](./DEMO_COSTS.md) | Cost breakdown and lifecycle |
 | [RUNBOOK.md](./RUNBOOK.md) | Operator quick reference |

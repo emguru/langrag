@@ -1,0 +1,172 @@
+# Showcase UI: egress only to agents, ingestion, and DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: showcase-ui-egress
+  namespace: showcase
+spec:
+  podSelector:
+    matchLabels:
+      app: showcase-ui
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agents
+      ports:
+        - protocol: TCP
+          port: 8000
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: rag
+      ports:
+        - protocol: TCP
+          port: 8001
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Research agents: ingress from showcase only; egress to RAG + HTTPS (Bedrock, LangSmith).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: research-agents-access
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app: research-agents
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: showcase
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: rag
+      ports:
+        - protocol: TCP
+          port: 6333
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 8001
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - ports:
+        - protocol: TCP
+          port: 443
+---
+# Ingestion: ingress from showcase and agents; egress to Qdrant, S3, and public HTTPS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingestion-access
+  namespace: rag
+spec:
+  podSelector:
+    matchLabels:
+      app: ingestion
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: showcase
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agents
+      ports:
+        - protocol: TCP
+          port: 8001
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: qdrant
+      ports:
+        - protocol: TCP
+          port: 6333
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - ports:
+        - protocol: TCP
+          port: 443
+---
+# Qdrant: ingress from agents and ingestion only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: qdrant-ingress
+  namespace: rag
+spec:
+  podSelector:
+    matchLabels:
+      app: qdrant
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agents
+        - podSelector:
+            matchLabels:
+              app: ingestion
+      ports:
+        - protocol: TCP
+          port: 6333
+---
+# Redis: ingress from agents only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-ingress
+  namespace: rag
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agents
+      ports:
+        - protocol: TCP
+          port: 6379

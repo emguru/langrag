@@ -26,4 +26,6 @@ cdk/*.d.ts
 cdk/lib/*.d.ts
 cdk/bin/*.d.ts
 .demo-ui-svc.yaml
+.demo-ingress.yaml
+.demo-access-mode
 .demo-deploy/

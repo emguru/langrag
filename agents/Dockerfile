@@ -9,10 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml langgraph.json ./
 COPY src/ ./src/
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . "langgraph-cli[inmem]>=0.1.0"
 
-ENV LANGGRAPH_HTTP=0.0.0.0:8000
+ENV PORT=8000
 
 EXPOSE 8000
 
-CMD ["langgraph", "up", "--host", "0.0.0.0", "--port", "8000", "--no-browser"]
+CMD ["langgraph", "dev", "--host", "0.0.0.0", "--port", "8000", "--no-browser", "--no-reload"]

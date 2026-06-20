@@ -11,7 +11,8 @@ class Settings(BaseSettings):
 
     # LLM
     bedrock_region: str = "us-east-1"
-    default_llm_model: str = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    bedrock_read_timeout: int = 600
+    default_llm_model: str = "us.anthropic.claude-sonnet-4-6"
     default_embedding_model: str = "amazon.titan-embed-text-v2:0"
     openai_api_key: str = ""
     llm_provider: str = "bedrock"  # bedrock | openai
@@ -21,6 +22,9 @@ class Settings(BaseSettings):
     qdrant_collection: str = "research_docs"
     rag_top_k: int = 8
     ingestion_api_url: str = "http://localhost:8001"
+
+    # Corrective RAG
+    crag_enabled: bool = True
 
     # Research tuning
     max_researcher_parallel: int = 2

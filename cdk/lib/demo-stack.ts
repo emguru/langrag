@@ -1,5 +1,8 @@
+import * as budgets from "aws-cdk-lib/aws-budgets";
 import * as cdk from "aws-cdk-lib";
 import { KubectlV32Layer } from "@aws-cdk/lambda-layer-kubectl-v32";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
+import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as eks from "aws-cdk-lib/aws-eks";
@@ -142,17 +145,181 @@ export class DemoStack extends cdk.Stack {
     });
     ingestionSa.node.addDependency(appNamespaces);
 
-    for (const sa of [agentsSa, ingestionSa]) {
-      sa.addToPrincipalPolicy(
-        new iam.PolicyStatement({
-          actions: [
-            "bedrock:InvokeModel",
-            "bedrock:InvokeModelWithResponseStream",
-          ],
-          resources: ["*"],
-        }),
-      );
-      documentsBucket.grantReadWrite(sa);
+    const defaultLlmModel =
+      (this.node.tryGetContext("defaultLlmModel") as string | undefined) ??
+      "us.anthropic.claude-sonnet-4-6";
+    const defaultEmbeddingModel =
+      (this.node.tryGetContext("defaultEmbeddingModel") as string | undefined) ??
+      "amazon.titan-embed-text-v2:0";
+    const cragGraderModel =
+      (this.node.tryGetContext("cragGraderModel") as string | undefined) ??
+      "us.anthropic.claude-3-5-haiku-20241022-v1:0";
+
+    const bedrockInvokeResources = (modelId: string): string[] => {
+      if (modelId.startsWith("us.") || modelId.startsWith("global.")) {
+        const foundationModelId = modelId.replace(/^(?:us|global)\./, "");
+        return [
+          `arn:aws:bedrock:${this.region}:${this.account}:inference-profile/${modelId}`,
+          `arn:aws:bedrock:*::foundation-model/${foundationModelId}`,
+        ];
+      }
+      return [`arn:aws:bedrock:${this.region}::foundation-model/${modelId}`];
+    };
+
+    agentsSa.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream",
+        ],
+        resources: [
+          ...bedrockInvokeResources(defaultLlmModel),
+          ...bedrockInvokeResources(defaultEmbeddingModel),
+        ],
+      }),
+    );
+    documentsBucket.grantReadWrite(agentsSa);
+
+    ingestionSa.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ["bedrock:InvokeModel"],
+        resources: [
+          ...bedrockInvokeResources(defaultEmbeddingModel),
+          ...bedrockInvokeResources(cragGraderModel),
+        ],
+      }),
+    );
+    documentsBucket.grantReadWrite(ingestionSa);
+
+    // ── Cognito (showcase UI auth) ────────────────────────────────────────────
+    const cognitoDomainPrefix =
+      (this.node.tryGetContext("cognitoDomainPrefix") as string | undefined) ??
+      `${clusterName.replace(/[^a-z0-9-]/gi, "-").toLowerCase()}-demo`;
+    const appDomainName = this.node.tryGetContext("appDomainName") as
+      | string
+      | undefined;
+    const certificateArn = this.node.tryGetContext("certificateArn") as
+      | string
+      | undefined;
+    const ingressEnabled = Boolean(
+      appDomainName && (certificateArn || appDomainName),
+    );
+
+    const showcaseUserPool = new cognito.UserPool(this, "ShowcaseUserPool", {
+      userPoolName: `${clusterName}-showcase`,
+      selfSignUpEnabled: false,
+      signInAliases: { email: true },
+      autoVerify: { email: true },
+      standardAttributes: {
+        email: { required: true, mutable: true },
+      },
+      passwordPolicy: {
+        minLength: 12,
+        requireLowercase: true,
+        requireUppercase: true,
+        requireDigits: true,
+        requireSymbols: false,
+      },
+      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+      removalPolicy: demoMode
+        ? cdk.RemovalPolicy.DESTROY
+        : cdk.RemovalPolicy.RETAIN,
+    });
+
+    const showcaseClient = showcaseUserPool.addClient("ShowcaseWebClient", {
+      userPoolClientName: "showcase-web",
+      // ALB authenticate-cognito requires a confidential client (with secret).
+      generateSecret: Boolean(appDomainName),
+      authFlows: {
+        userPassword: true,
+        userSrp: true,
+      },
+      ...(appDomainName
+        ? {
+            oAuth: {
+              flows: { authorizationCodeGrant: true },
+              scopes: [
+                cognito.OAuthScope.OPENID,
+                cognito.OAuthScope.EMAIL,
+                cognito.OAuthScope.PROFILE,
+              ],
+              callbackUrls: [
+                `https://${appDomainName}/oauth2/idpresponse`,
+              ],
+              logoutUrls: [`https://${appDomainName}/`],
+            },
+          }
+        : {}),
+    });
+
+    showcaseUserPool.addDomain("ShowcaseDomain", {
+      cognitoDomain: {
+        domainPrefix: cognitoDomainPrefix,
+      },
+    });
+
+    let ingressCertificateArn = certificateArn ?? "";
+    if (appDomainName && !certificateArn) {
+      const cert = new acm.Certificate(this, "ShowcaseIngressCert", {
+        domainName: appDomainName,
+        validation: acm.CertificateValidation.fromDns(),
+      });
+      ingressCertificateArn = cert.certificateArn;
+    }
+
+    const cognitoHostedDomain = `${cognitoDomainPrefix}.auth.${this.region}.amazoncognito.com`;
+
+    const budgetAlertEmail = this.node.tryGetContext("budgetAlertEmail") as
+      | string
+      | undefined;
+    const bedrockBudgetUsd =
+      (this.node.tryGetContext("bedrockBudgetUsd") as number | undefined) ?? 50;
+
+    if (budgetAlertEmail) {
+      new budgets.CfnBudget(this, "BedrockBudget", {
+        budget: {
+          budgetName: `${clusterName}-bedrock-monthly`,
+          budgetType: "COST",
+          timeUnit: "MONTHLY",
+          budgetLimit: {
+            amount: bedrockBudgetUsd,
+            unit: "USD",
+          },
+          costFilters: {
+            Service: ["Amazon Bedrock"],
+          },
+        },
+        notificationsWithSubscribers: [
+          {
+            notification: {
+              notificationType: "ACTUAL",
+              comparisonOperator: "GREATER_THAN",
+              threshold: 80,
+              thresholdType: "PERCENTAGE",
+            },
+            subscribers: [
+              {
+                subscriptionType: "EMAIL",
+                address: budgetAlertEmail,
+              },
+            ],
+          },
+          {
+            notification: {
+              notificationType: "FORECASTED",
+              comparisonOperator: "GREATER_THAN",
+              threshold: 100,
+              thresholdType: "PERCENTAGE",
+            },
+            subscribers: [
+              {
+                subscriptionType: "EMAIL",
+                address: budgetAlertEmail,
+              },
+            ],
+          },
+        ],
+      });
     }
 
     // ── Secrets Manager ───────────────────────────────────────────────────────
@@ -169,6 +336,9 @@ export class DemoStack extends cdk.Stack {
         ),
         openai_api_key: cdk.SecretValue.unsafePlainText(
           process.env.OPENAI_API_KEY ?? "",
+        ),
+        tavily_api_key: cdk.SecretValue.unsafePlainText(
+          process.env.TAVILY_API_KEY ?? "",
         ),
       },
     });
@@ -223,6 +393,65 @@ export class DemoStack extends cdk.Stack {
       value: enableRds ? `${clusterName}-postgres` : "",
       description: "Empty when RDS disabled (demo default)",
     });
+
+    new cdk.CfnOutput(this, "OutCognitoUserPoolId", {
+      value: showcaseUserPool.userPoolId,
+      exportName: `${clusterName}-CognitoUserPoolId`,
+    });
+
+    new cdk.CfnOutput(this, "OutCognitoUserPoolArn", {
+      value: showcaseUserPool.userPoolArn,
+      exportName: `${clusterName}-CognitoUserPoolArn`,
+    });
+
+    new cdk.CfnOutput(this, "OutCognitoClientId", {
+      value: showcaseClient.userPoolClientId,
+      exportName: `${clusterName}-CognitoClientId`,
+    });
+
+    if (appDomainName) {
+      new cdk.CfnOutput(this, "OutCognitoClientSecret", {
+        value: showcaseClient.userPoolClientSecret.unsafeUnwrap(),
+        description: "Required for ALB authenticate-cognito (do not commit)",
+      });
+    }
+
+    new cdk.CfnOutput(this, "OutCognitoDomainPrefix", {
+      value: cognitoDomainPrefix,
+    });
+
+    new cdk.CfnOutput(this, "OutCognitoHostedUiUrl", {
+      value: `https://${cognitoHostedDomain}`,
+    });
+
+    new cdk.CfnOutput(this, "OutAppDomainName", {
+      value: appDomainName ?? "",
+      description: "Set in cdk.json to enable HTTPS ALB + Cognito ingress",
+    });
+
+    new cdk.CfnOutput(this, "OutIngressCertificateArn", {
+      value: ingressCertificateArn,
+      description: "ACM cert ARN for ALB (auto-created or from certificateArn context)",
+    });
+
+    new cdk.CfnOutput(this, "OutIngressEnabled", {
+      value: ingressEnabled && ingressCertificateArn ? "true" : "false",
+    });
+
+    new cdk.CfnOutput(this, "OutDefaultLlmModel", {
+      value: defaultLlmModel,
+    });
+
+    new cdk.CfnOutput(this, "OutDefaultEmbeddingModel", {
+      value: defaultEmbeddingModel,
+    });
+
+    if (budgetAlertEmail) {
+      new cdk.CfnOutput(this, "OutBedrockBudgetEmail", {
+        value: budgetAlertEmail,
+        description: "Email receiving Bedrock spend alerts at 80% actual / 100% forecast",
+      });
+    }
 
     if (enableRds) {
       cdk.Annotations.of(this).addWarning(

@@ -90,5 +90,6 @@ You only pay when agents run. For a typical research demo (3 sub-questions, 1 sy
 
 - Claude 3.5 Sonnet: ~\$0.05–0.20 per run (varies by topic length)
 - Titan Embeddings: ~\$0.001 per document batch
+- CRAG grader (Haiku): ~\$0.03–0.08 extra per research run
 
 Enable model access in the AWS Bedrock console before your first demo.

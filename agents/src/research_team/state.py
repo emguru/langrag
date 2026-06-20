@@ -26,6 +26,7 @@ class ResearchFinding(BaseModel):
     summary: str
     sources: list[str] = Field(default_factory=list)
     confidence: Literal["high", "medium", "low"] = "medium"
+    rag_hits: list[dict] = Field(default_factory=list)
 
 
 class CritiqueOutput(BaseModel):
@@ -44,6 +45,8 @@ class ResearchState(TypedDict, total=False):
     report: str
     iteration: int
     collection_name: str
+    human_synthesize_now: bool
+    human_edited_report: str
 
 
 def initial_state(topic: str, collection: str | None = None) -> ResearchState:
@@ -56,6 +59,8 @@ def initial_state(topic: str, collection: str | None = None) -> ResearchState:
         "report": "",
         "iteration": 0,
         "collection_name": collection or settings.qdrant_collection,
+        "human_synthesize_now": False,
+        "human_edited_report": "",
     }
 
 
@@ -71,7 +76,8 @@ Prioritize questions that benefit from both document retrieval (RAG) and web sea
 
 RESEARCHER_PROMPT = """You are a specialist researcher. Investigate ONE sub-question thoroughly.
 
-Use the rag_search tool for uploaded documents and web_search for current information.
+Use rag_search for uploaded documents (Corrective RAG: grades chunks, filters noise, may fall back to web).
+Use web_search for current events when documents are insufficient.
 Cite sources. Be concise but substantive. Rate your confidence: high, medium, or low."""
 
 CRITIC_PROMPT = """You are a research critic. Review all findings for:
@@ -88,3 +94,23 @@ SYNTHESIZER_PROMPT = """You are a research synthesizer. Write a polished report 
 4. Recommended next steps
 
 Use markdown formatting. Ground every claim in the provided findings."""
+
+
+def coerce_sub_question(item: ResearchSubQuestion | dict) -> ResearchSubQuestion:
+    if isinstance(item, ResearchSubQuestion):
+        return item
+    return ResearchSubQuestion.model_validate(item)
+
+
+def coerce_finding(item: ResearchFinding | dict) -> ResearchFinding:
+    if isinstance(item, ResearchFinding):
+        return item
+    return ResearchFinding.model_validate(item)
+
+
+def coerce_critique(item: CritiqueOutput | dict | None) -> CritiqueOutput | None:
+    if item is None:
+        return None
+    if isinstance(item, CritiqueOutput):
+        return item
+    return CritiqueOutput.model_validate(item)

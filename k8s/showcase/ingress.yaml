@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: showcase-ui
+  namespace: showcase
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: kube-rag-langg-showcase
+    alb.ingress.kubernetes.io/load-balancer-name: kube-rag-langg-showcase
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: INGRESS_CERTIFICATE_ARN
+    alb.ingress.kubernetes.io/auth-type: cognito
+    alb.ingress.kubernetes.io/auth-idp-cognito: '{"UserPoolArn":"COGNITO_USER_POOL_ARN","UserPoolClientId":"COGNITO_CLIENT_ID","UserPoolClientSecret":"COGNITO_CLIENT_SECRET","UserPoolDomain":"COGNITO_DOMAIN_PREFIX"}'
+    alb.ingress.kubernetes.io/healthcheck-path: /api/health
+    alb.ingress.kubernetes.io/success-codes: "200"
+spec:
+  ingressClassName: alb
+  rules:
+    - host: APP_DOMAIN_NAME
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: showcase-ui
+                port:
+                  number: 80

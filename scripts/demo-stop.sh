@@ -26,6 +26,14 @@ if kubectl get svc showcase-ui -n showcase &>/dev/null; then
   echo "    Removed LoadBalancer service (saves ~\$16/mo while stopped)"
 fi
 
+if kubectl get ingress showcase-ui -n showcase &>/dev/null; then
+  INGRESS_HOST="$(kubectl get ingress showcase-ui -n showcase -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+  kubectl annotate ingress showcase-ui -n showcase \
+    "demo.kube-rag-langg/last-host=${INGRESS_HOST}" --overwrite 2>/dev/null || true
+  kubectl delete ingress showcase-ui -n showcase --ignore-not-found
+  echo "    Removed ALB ingress (Cognito-protected)"
+fi
+
 NODEGROUP="$(cdk_node_group_name)"
 if [[ -n "$NODEGROUP" && "$NODEGROUP" != "None" ]]; then
   MAX_SIZE="$(cdk_node_max_size)"
