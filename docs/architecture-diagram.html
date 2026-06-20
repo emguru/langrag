@@ -13,6 +13,7 @@
       --text: #232f3e;
       --muted: #545b64;
       --header: #232f3e;
+      --accent: #0073bb;
     }
     * { box-sizing: border-box; }
     body {
@@ -79,15 +80,25 @@
       border-radius: 8px;
     }
     .legend strong { display: block; margin-bottom: 0.25rem; }
+    .badge {
+      display: inline-block;
+      background: #e8f4fc;
+      color: var(--accent);
+      font-size: 0.8rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      margin-left: 0.5rem;
+    }
   </style>
 </head>
 <body>
   <header>
     <h1>Kube RAG LangGraph — Deployed Architecture</h1>
-    <p>CDK stack <code>KubeRagLanggDemo</code> · EKS cluster <code>kube-rag-langg</code> · demo mode</p>
+    <p>CDK stack <code>KubeRagLanggDemo</code> · EKS <code>kube-rag-langg</code> · domain <code>langrag.automatico.llc</code></p>
     <nav>
       <a href="ARCHITECTURE_DIAGRAM.md">Markdown source</a>
       <a href="BUILD_AND_USAGE.md">Build &amp; Usage</a>
+      <a href="SECURITY.md">Security</a>
       <a href="DEMO_COSTS.md">Costs</a>
     </nav>
   </header>
@@ -95,18 +106,22 @@
   <main>
     <section>
       <h2>Deployed components</h2>
-      <p class="desc">Everything created by <code>infra-deploy.sh</code>, <code>bootstrap.sh</code>, and <code>deploy.sh</code>.</p>
+      <p class="desc">Created by <code>infra-deploy.sh</code>, <code>bootstrap.sh</code>, and <code>deploy.sh</code>.</p>
       <div class="legend">
-        <div><strong>CDK / CloudFormation</strong>VPC, EKS, S3, ECR, IRSA, Secrets Manager</div>
-        <div><strong>Kubernetes apps</strong>Showcase UI, LangGraph agents, Ingestion, Qdrant, Redis</div>
-        <div><strong>Add-ons</strong>ALB controller, EBS CSI, autoscaler, external-secrets</div>
-        <div><strong>External SaaS</strong>Bedrock, LangSmith Cloud, Tavily (optional)</div>
+        <div><strong>CDK / CloudFormation</strong>VPC, EKS, S3, ECR, Cognito, ACM, Bedrock budget ($50/mo), model-scoped IRSA</div>
+        <div><strong>Kubernetes apps</strong>Showcase UI (SSE gateway), LangGraph agents, Ingestion, Qdrant, Redis</div>
+        <div><strong>Edge access</strong>HTTP NLB (active) or ALB HTTPS + Cognito (after ACM DNS validates)</div>
+        <div><strong>External SaaS</strong>Bedrock (Claude Sonnet 4.6 + Titan v2), LangSmith Cloud, Tavily (optional)</div>
       </div>
     </section>
 
     <section>
-      <h2>System overview</h2>
-      <p class="desc">User traffic enters via an internet-facing LoadBalancer; agents call Bedrock and Qdrant inside the cluster.</p>
+      <h2>System overview <span class="badge">dual access mode</span></h2>
+      <p class="desc">
+        <strong>Active now:</strong> public HTTP NLB → Showcase UI.
+        <strong>After ACM ISSUED:</strong> <code>apply-showcase-access.sh</code> switches to ALB HTTPS + Cognito @ <code>langrag.automatico.llc</code>.
+        Internal traffic restricted by NetworkPolicies.
+      </p>
       <pre class="mermaid">
 flowchart TB
   subgraph external["Outside AWS"]
@@ -117,14 +132,16 @@ flowchart TB
 
   subgraph aws["AWS Account us-east-1"]
     CDK["CDK KubeRagLanggDemo"]
+    SM["Secrets Manager app-secrets"]
 
     subgraph vpc["VPC"]
       NAT["NAT Gateway"]
-      NLB["NLB showcase-ui"]
+      NLB["NLB HTTP active"]
+      ALB["ALB HTTPS Cognito pending ACM"]
 
-      subgraph eks["EKS kube-rag-langg K8s 1.32"]
+      subgraph eks["EKS kube-rag-langg"]
         subgraph showcase["showcase"]
-          UI["Showcase UI React + FastAPI"]
+          UI["Showcase UI FastAPI SSE gateway"]
         end
         subgraph agents["agents"]
           LG["LangGraph research-agents"]
@@ -135,20 +152,26 @@ flowchart TB
           Redis["Redis"]
         end
         subgraph system["kube-system"]
-          ALB["ALB Controller"]
+          ALBC["ALB Controller"]
           EBS["EBS CSI"]
         end
-        Node["t3.large node group"]
+        Node["t3.large nodes"]
       end
 
       S3["S3 documents"]
-      ECR["ECR images"]
-      Bedrock["Amazon Bedrock"]
+      Cognito["Cognito User Pool"]
+      Budget["Bedrock Budget alerts"]
+      Bedrock["Bedrock Sonnet 4.6 Titan embed"]
     end
   end
 
-  User --> NLB --> UI
-  UI --> LG
+  User --> NLB
+  User -.->|after ACM DNS| ALB
+  ALB --> Cognito
+  Cognito --> ALB
+  NLB --> UI
+  ALB -.-> UI
+  UI -->|SSE event data| LG
   UI --> Ing
   LG --> Qdrant
   LG --> Bedrock
@@ -157,53 +180,71 @@ flowchart TB
   Ing --> S3
   Ing --> Qdrant
   Ing --> Bedrock
+  SM -.-> UI
+  SM -.-> LG
+  SM -.-> Ing
   CDK --> vpc
-  CDK --> S3
-  CDK --> ECR
-  ECR -.-> Node
-  ALB --> NLB
+  CDK --> Cognito
+  CDK --> Budget
+  CDK --> SM
+  ALBC --> ALB
   EBS --> Qdrant
   NAT --> Bedrock
+  NAT --> LangSmith
       </pre>
     </section>
 
     <section>
       <h2>Research run sequence</h2>
-      <p class="desc">What happens when a user submits a research topic in the showcase UI.</p>
+      <p class="desc">
+        UI gateway parses LangGraph SSE (<code>event:</code> / <code>data:</code>) and streams node progress.
+        Graph: coordinator → researchers (3–10 min) → critic → synthesizer → report.
+        Agents call Bedrock LLM + Titan embeddings for RAG; traces go to LangSmith.
+      </p>
       <pre class="mermaid">
 sequenceDiagram
   actor User
-  participant UI as Showcase UI
+  participant Edge as NLB or ALB Cognito
+  participant UI as Showcase UI gateway
   participant LG as research-agents
   participant Q as Qdrant
   participant BR as Bedrock
   participant LS as LangSmith
 
+  User->>Edge: HTTP or HTTPS
+  Edge->>UI: Forward
   User->>UI: Research topic
-  UI->>LG: SSE stream
+  UI->>LG: POST runs stream updates
+  LG-->>UI: SSE metadata run started
+  LG->>LG: coordinator plan
+  LG-->>UI: SSE updates coordinator
+  Note over LG,UI: researchers node RAG plus LLM 3 to 10 min
   LG->>Q: RAG retrieval
   Q-->>LG: Chunks
-  LG->>BR: Claude invoke
-  BR-->>LG: Response
-  Note over LG: Coordinator Researchers Critic Synthesizer
-  LG-->>UI: Stream report
-  UI-->>User: Final output
-  LG-->>LS: Traces
+  LG->>BR: Titan embed plus Claude
+  BR-->>LG: Vectors and text
+  LG-->>UI: SSE updates researchers critic synthesizer
+  LG-->>UI: SSE report in synthesizer update
+  UI-->>User: Live progress and final report
+  LG-->>LS: Traces LANGSMITH_API_KEY
       </pre>
     </section>
 
     <section>
       <h2>Document ingestion sequence</h2>
-      <p class="desc">Upload path for PDFs and text files used by RAG.</p>
+      <p class="desc">Upload capped at 100 MB; rate limited at the API gateway.</p>
       <pre class="mermaid">
 sequenceDiagram
   actor User
+  participant ALB as ALB + Cognito
   participant UI as Showcase UI
   participant Ing as Ingestion
   participant S3 as S3
   participant BR as Bedrock
   participant Q as Qdrant
 
+  User->>Edge: HTTP or HTTPS
+  Edge->>UI: Forward
   User->>UI: Upload file
   UI->>Ing: Ingest request
   Ing->>S3: Store raw
@@ -215,15 +256,37 @@ sequenceDiagram
     </section>
 
     <section>
+      <h2>Security controls</h2>
+      <table>
+        <thead>
+          <tr><th>Control</th><th>Implementation</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Edge auth</td><td>Cognito @ ALB when ACM cert ISSUED; NLB has no auth until then</td></tr>
+          <tr><td>TLS</td><td>ACM cert for <code>langrag.automatico.llc</code> (pending GoDaddy DNS validation)</td></tr>
+          <tr><td>IAM</td><td>IRSA: agents → Sonnet 4.6 LLM + Titan embed; ingestion → Titan embed</td></tr>
+          <tr><td>Secrets</td><td>AWS Secrets Manager + K8s <code>app-secrets</code> (LangSmith, S3 bucket)</td></tr>
+          <tr><td>Upload cap</td><td>100 MB on UI gateway + ingestion</td></tr>
+          <tr><td>Rate limits</td><td>10 ingest / 5 research per min per client IP</td></tr>
+          <tr><td>SSRF</td><td>URL ingest blocks private IPs, metadata, bad redirects</td></tr>
+          <tr><td>Network</td><td>NetworkPolicies: UI → agents/ingestion only</td></tr>
+          <tr><td>Spend</td><td>AWS Budget email alerts on Bedrock (80% / 100%)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
       <h2>Provisioned by layer</h2>
       <table>
         <thead>
           <tr><th>Script</th><th>Creates</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>infra-deploy.sh</code></td><td>VPC, EKS 1.32, node group, S3 bucket, ECR repos, IRSA roles, Secrets Manager</td></tr>
-          <tr><td><code>bootstrap.sh</code></td><td>EBS CSI, ALB controller + IRSA, External Secrets, Cluster Autoscaler, gp3 StorageClass</td></tr>
-          <tr><td><code>deploy.sh</code></td><td>Qdrant, Redis, Ingestion, research-agents, Showcase UI + LoadBalancer Service</td></tr>
+          <tr><td><code>infra-deploy.sh</code></td><td>VPC, EKS, S3, ECR, Cognito, ACM cert, Bedrock budget, model-scoped IRSA</td></tr>
+          <tr><td><code>bootstrap.sh</code></td><td>EBS CSI + IRSA, ALB controller, External Secrets, Cluster Autoscaler, gp3 StorageClass</td></tr>
+          <tr><td><code>deploy.sh</code></td><td>Qdrant, Redis, Ingestion, research-agents, Showcase UI, NetworkPolicies</td></tr>
+          <tr><td><code>apply-showcase-access.sh</code></td><td>NLB (HTTP) or ALB ingress (HTTPS + Cognito) based on ACM status</td></tr>
+          <tr><td><code>print-acm-validation.sh</code></td><td>Print GoDaddy CNAME for ACM DNS validation</td></tr>
         </tbody>
       </table>
     </section>
@@ -243,8 +306,8 @@ stateDiagram-v2
         <thead><tr><th>Mode</th><th>Command</th><th>~Monthly cost</th></tr></thead>
         <tbody>
           <tr><td>Parked</td><td><code>demo-park.sh</code></td><td>$0–1 (S3 + ECR)</td></tr>
-          <tr><td>Stopped</td><td><code>demo-stop.sh</code></td><td>~$105 (EKS + NAT)</td></tr>
-          <tr><td>Running</td><td><code>deploy.sh</code></td><td>~$185 if 24/7 + Bedrock usage</td></tr>
+          <tr><td>Stopped</td><td><code>demo-stop.sh</code></td><td>~$105 (EKS + NAT, no ALB/nodes)</td></tr>
+          <tr><td>Running</td><td><code>deploy.sh</code></td><td>~$185–205 if 24/7 + Bedrock usage</td></tr>
         </tbody>
       </table>
     </section>
