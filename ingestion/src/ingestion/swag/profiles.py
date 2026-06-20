@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 
 from ingestion.config import settings
-from ingestion.rag_store import persist_swag_profile
 from ingestion.swag.profile import SWAGProfileGenerator, profile_from_payload
 from ingestion.swag.schemas import SWAGProfile
 
@@ -53,6 +52,8 @@ def ensure_swag_profiles(
         point_id = updated.get("id")
         if point_id and settings.swag_persist_profiles:
             try:
+                from ingestion.rag_store import persist_swag_profile
+
                 persist_swag_profile(collection, str(point_id), profile.model_dump())
             except Exception as exc:
                 logger.warning("Failed to persist SWAG profile for %s: %s", point_id, exc)
