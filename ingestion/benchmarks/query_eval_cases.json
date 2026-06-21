@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "description": "Demo corpus eval sheet — stable text markers, not document UUIDs (re-seed safe).",
+  "collection": "research_docs",
+  "top_k": 3,
+  "pass_threshold": 0.8,
+  "cases": [
+    {
+      "id": "what-is-rag",
+      "query": "what is rag",
+      "notes": "LangChain RAG intro; SWAG should rank explanatory body over README title.",
+      "swag": {
+        "min_hits": 2,
+        "top1_kind": "body",
+        "top1_text_any": ["LLMs are trained on a large but fixed corpus"],
+        "forbid_top1_text_any": ["# RAG From Scratch"],
+        "require_beats_baseline_title": true
+      }
+    },
+    {
+      "id": "rag-full-name",
+      "query": "What is retrieval augmented generation?",
+      "notes": "Same LangChain doc; body chunk should lead.",
+      "swag": {
+        "min_hits": 2,
+        "top1_kind": "body",
+        "top1_text_any": [
+          "LLMs are trained on a large but fixed corpus",
+          "retrieval augmented generation"
+        ]
+      }
+    },
+    {
+      "id": "chunking-quality",
+      "query": "How does chunking affect RAG quality?",
+      "notes": "Baseline often surfaces title/nav first; SWAG should prefer body.",
+      "swag": {
+        "min_hits": 2,
+        "top1_kind": "body",
+        "require_beats_baseline_title": true
+      }
+    },
+    {
+      "id": "corrective-rag",
+      "query": "What is corrective RAG?",
+      "notes": "CRAG/RAG overview from LangChain corpus; no title at #1.",
+      "swag": {
+        "min_hits": 2,
+        "top1_kind": "body",
+        "forbid_top1_text_any": ["# RAG From Scratch"],
+        "require_beats_baseline_title": true
+      }
+    },
+    {
+      "id": "embeddings-vector-search",
+      "query": "How do embeddings work in vector search?",
+      "notes": "Microsoft search-apps lesson (embeddings / vector DB content).",
+      "swag": {
+        "min_hits": 2,
+        "top1_kind": "body",
+        "top_k_text_any": ["Vector Databases", "Embedding Index", "embeddings"]
+      }
+    },
+    {
+      "id": "naive-vs-agentic",
+      "query": "Compare naive RAG vs agentic RAG",
+      "notes": "General RAG intro body should beat README chrome.",
+      "swag": {
+        "min_hits": 2,
+        "top1_kind": "body",
+        "require_beats_baseline_title": true
+      }
+    },
+    {
+      "id": "rag-limitations",
+      "query": "What are limitations of RAG?",
+      "notes": "Substantive body at #1; SWAG may pull prompt-engineering doc into top-3.",
+      "swag": {
+        "min_hits": 2,
+        "top1_kind": "body",
+        "forbid_top1_text_any": ["# RAG From Scratch"]
+      }
+    },
+    {
+      "id": "evaluate-rag",
+      "query": "How to evaluate RAG systems?",
+      "notes": "Body-first ranking; eval content may span LangChain + prompt doc.",
+      "swag": {
+        "min_hits": 2,
+        "top1_kind": "body",
+        "require_beats_baseline_title": true
+      }
+    },
+    {
+      "id": "hybrid-search",
+      "query": "What is hybrid search?",
+      "notes": "Search-apps lesson (semantic / Azure ML examples).",
+      "swag": {
+        "min_hits": 2,
+        "top1_kind": "body",
+        "top_k_text_any": [
+          "Jupyter Notebooks",
+          "Azure ML",
+          "Semantic query",
+          "Vector Databases"
+        ]
+      }
+    },
+    {
+      "id": "prompt-engineering-search",
+      "query": "How does prompt engineering improve search?",
+      "notes": "Prompt-engineering lesson; body chunks about prompts, not nav/title.",
+      "swag": {
+        "min_hits": 3,
+        "top1_kind": "body",
+        "top_k_text_any": [
+          "Prompt Engineering",
+          "prompt engineering",
+          "Users can now interact with these models"
+        ]
+      }
+    }
+  ]
+}

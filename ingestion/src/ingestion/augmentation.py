@@ -24,6 +24,7 @@ def _apply_crag_to_hits(
     collection: str,
     top_k: int,
     topic: str | None,
+    swag_on_retry: bool = False,
 ) -> tuple[list[dict], dict]:
     if not hits:
         return [], {
@@ -55,6 +56,13 @@ def _apply_crag_to_hits(
                     top_k=retrieve_k,
                     topic=topic,
                 )
+                if swag_on_retry and settings.swag_enabled:
+                    retry_hits, _ = rerank_hits_with_swag(
+                        rewritten_query,
+                        retry_hits,
+                        collection=collection,
+                        top_k=top_k,
+                    )
                 retry_graded = grade_chunks(rewritten_query, retry_hits)
                 retry_relevant, retry_ambiguous, _ = _partition(retry_graded)
                 if len(retry_relevant) >= min_relevant:
@@ -172,6 +180,7 @@ def search_with_augmentation(
                     collection=collection,
                     top_k=limit,
                     topic=topic,
+                    swag_on_retry=True,
                 )
             else:
                 hits = swag_hits

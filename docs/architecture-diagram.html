@@ -110,16 +110,17 @@
       <div class="legend">
         <div><strong>CDK / CloudFormation</strong>VPC, EKS, S3, ECR, Cognito, ACM, Bedrock budget ($50/mo), model-scoped IRSA</div>
         <div><strong>Kubernetes apps</strong>Showcase UI (SSE gateway), LangGraph agents, Ingestion, Qdrant, Redis</div>
-        <div><strong>Edge access</strong>HTTP NLB (active) or ALB HTTPS + Cognito (after ACM DNS validates)</div>
-        <div><strong>External SaaS</strong>Bedrock (Claude Sonnet 4.6 + Haiku SWAG/CRAG + Titan v2), LangSmith Cloud, Tavily (optional)</div>
+        <div><strong>Edge access</strong>ALB HTTPS + Cognito @ <code>langrag.automatico.llc</code> (HTTP NLB fallback if ACM pending)</div>
+        <div><strong>External SaaS</strong>Bedrock (Sonnet 4.6 agents · Haiku CRAG · Titan v2 embed) · LangSmith · Tavily optional</div>
+        <div><strong>SWAG default</strong>Heuristic profiles (no Bedrock) · scored eval via <code>benchmark-query-battery.sh</code></div>
       </div>
     </section>
 
     <section>
-      <h2>System overview <span class="badge">dual access mode</span></h2>
+      <h2>System overview <span class="badge">HTTPS + Cognito</span></h2>
       <p class="desc">
-        <strong>Active now:</strong> public HTTP NLB → Showcase UI.
-        <strong>After ACM ISSUED:</strong> <code>apply-showcase-access.sh</code> switches to ALB HTTPS + Cognito @ <code>langrag.automatico.llc</code>.
+        Production demo: ALB HTTPS + Cognito @ <code>langrag.automatico.llc</code>.
+        Fallback: public HTTP LoadBalancer until ACM cert is ISSUED.
         Internal traffic restricted by NetworkPolicies.
       </p>
       <pre class="mermaid">
@@ -208,8 +209,8 @@ flowchart TB
       <pre class="mermaid">
 flowchart LR
   Q[Query] --> R[Vector retrieve Qdrant]
-  R --> P[Ensure SWAG profiles auto]
-  P --> S[SWAG rerank Haiku profile]
+  R --> P[Ensure SWAG profiles heuristic]
+  P --> S[SWAG rerank postprocess]
   S --> G[CRAG Haiku grader]
   G -->|relevant| F[Filter and return chunks]
   G -->|ambiguous| RW[Rewrite query]
@@ -251,8 +252,8 @@ sequenceDiagram
   LG->>Ing: POST rag search mode swag_crag
   Ing->>Q: Vector retrieve candidates
   Q-->>Ing: Chunks plus SWAG metadata
-  Ing->>BR: Haiku SWAG rerank and CRAG grade
-  BR-->>Ing: Reranked graded chunks
+  Ing->>BR: Haiku CRAG grade
+  BR-->>Ing: Graded chunks
   alt weak RAG
     Ing-->>LG: web_fallback action
     LG->>Tavily: Web search
@@ -289,8 +290,7 @@ sequenceDiagram
   Ing->>Ing: Chunk document
   Ing->>BR: Titan embeddings
   BR-->>Ing: Vectors
-  Ing->>BR: Haiku SWAG chunk profiles
-  BR-->>Ing: Semantic metadata
+  Ing->>Ing: Heuristic SWAG profiles chunk kind
   Ing->>Q: Upsert vectors and SWAG payload
   Ing-->>UI: Done
       </pre>
@@ -305,10 +305,11 @@ sequenceDiagram
         <tbody>
           <tr><td>Edge auth</td><td>Cognito @ ALB when ACM cert ISSUED; NLB has no auth until then</td></tr>
           <tr><td>TLS</td><td>ACM cert for <code>langrag.automatico.llc</code> (pending GoDaddy DNS validation)</td></tr>
-          <tr><td>IAM</td><td>IRSA: agents → Sonnet 4.6 + Titan embed; ingestion → Titan embed + Haiku SWAG profiles + CRAG grader</td></tr>
+          <tr><td>IAM</td><td>IRSA: agents → Sonnet 4.6; ingestion → Titan embed + Haiku CRAG (+ optional SWAG llm mode)</td></tr>
           <tr><td>Secrets</td><td>AWS Secrets Manager + K8s <code>app-secrets</code> (LangSmith, S3 bucket)</td></tr>
           <tr><td>Upload cap</td><td>100 MB on UI gateway + ingestion</td></tr>
-          <tr><td>Rate limits</td><td>10 ingest / 5 research per min per client IP</td></tr>
+          <tr><td>Rate limits</td><td>10 ingest / 2 research / 30 search per min per client IP</td></tr>
+          <tr><td>Cost tags</td><td>CDK stack tags; activate in AWS Billing for allocation</td></tr>
           <tr><td>SSRF</td><td>URL ingest blocks private IPs, metadata, bad redirects</td></tr>
           <tr><td>Network</td><td>NetworkPolicies: UI → agents/ingestion only</td></tr>
           <tr><td>Spend</td><td>AWS Budget email alerts on Bedrock (80% / 100%)</td></tr>
@@ -327,7 +328,20 @@ sequenceDiagram
           <tr><td><code>bootstrap.sh</code></td><td>EBS CSI + IRSA, ALB controller, External Secrets, Cluster Autoscaler, gp3 StorageClass</td></tr>
           <tr><td><code>deploy.sh</code></td><td>Qdrant, Redis, Ingestion, research-agents, Showcase UI, NetworkPolicies</td></tr>
           <tr><td><code>apply-showcase-access.sh</code></td><td>NLB (HTTP) or ALB ingress (HTTPS + Cognito) based on ACM status</td></tr>
-          <tr><td><code>print-acm-validation.sh</code></td><td>Print GoDaddy CNAME for ACM DNS validation</td></tr>
+          <tr><td><code>print-acm-validation.sh</code></td><td>Print ACM DNS validation CNAME</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Validation scripts</h2>
+      <table>
+        <thead><tr><th>Script</th><th>Cost</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>validate-project.sh</code></td><td>$0</td><td>pytest + SWAG integrity + offline rerank smoke</td></tr>
+          <tr><td><code>validate-project.sh --live-smoke</code></td><td>~1 Titan embed</td><td>Corpus non-empty + baseline search</td></tr>
+          <tr><td><code>benchmark-query-battery.sh</code></td><td>~20 embeds</td><td>Scored eval sheet; exit 0 = PASS (≥80%)</td></tr>
+          <tr><td><code>seed-demo-corpus.sh</code></td><td>Bedrock-free with heuristic SWAG</td><td>5 public URLs → <code>research_docs</code></td></tr>
         </tbody>
       </table>
     </section>

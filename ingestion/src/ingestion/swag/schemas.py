@@ -39,6 +39,8 @@ class SWAGProfile(BaseModel):
     negative_contexts: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     detected_domain: str = "general"
+    # Sidecar metadata: title | body | nav | boilerplate — not source content.
+    chunk_kind: str = "body"
     weighted_terms: list[WeightedSemanticTerm] = Field(default_factory=list)
 
 

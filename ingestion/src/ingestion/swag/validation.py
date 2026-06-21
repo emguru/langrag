@@ -82,6 +82,7 @@ def sanitize_profile_data(
     sanitized: dict[str, Any] = {
         "detected_domain": _clip_str(data.get("detected_domain", "general"), settings.swag_max_domain_chars),
         "confidence": max(0.0, min(1.0, float(data.get("confidence", 0.5)))),
+        "chunk_kind": _clip_str(data.get("chunk_kind", "body"), 32) or "body",
     }
 
     for key in LIST_KEYS:

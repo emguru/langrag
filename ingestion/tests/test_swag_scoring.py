@@ -1,6 +1,11 @@
 from ingestion.swag.schemas import SemanticCategory, SWAGProfile, WeightedSemanticTerm
 from ingestion.swag.scoring import score_swag_alignment
-from ingestion.swag.utils import fuzzy_term_match, term_grounded_in_text
+from ingestion.swag.utils import (
+    fuzzy_term_match,
+    negative_penalty_match,
+    term_grounded_in_text,
+    term_mentioned_contrastively,
+)
 from ingestion.swag.validation import sanitize_profile_data
 
 
@@ -14,18 +19,11 @@ def test_query_negative_excluded_from_positive_matching():
     query = SWAGProfile(
         primary_concepts=["invoice"],
         negative_contexts=["fruit"],
-        weighted_terms=[
-            WeightedSemanticTerm(
-                term="fruit",
-                category=SemanticCategory.NEGATIVE_CONTEXT,
-                weight=1.0,
-                reason="avoid",
-            )
-        ],
     )
     chunk = SWAGProfile(
         primary_concepts=["fruit"],
         domain_terms=["orchard"],
+        confidence=0.8,
     )
     score, explanations = score_swag_alignment(
         query,
@@ -38,7 +36,7 @@ def test_query_negative_excluded_from_positive_matching():
 
 def test_ungrounded_chunk_term_discounted():
     query = SWAGProfile(primary_concepts=["quantum computing"])
-    chunk = SWAGProfile(primary_concepts=["quantum computing"])
+    chunk = SWAGProfile(primary_concepts=["quantum computing"], confidence=0.8)
     grounded_score, _ = score_swag_alignment(
         query,
         chunk,
@@ -71,3 +69,44 @@ def test_sanitize_caps_profile_size():
 def test_term_grounding_requires_token_overlap():
     assert term_grounded_in_text("invoice matching", "Vendor invoice matching rules apply.")
     assert not term_grounded_in_text("blockchain", "Vendor invoice matching rules apply.")
+
+
+def test_negative_penalty_skips_incidental_token_overlap():
+    assert not negative_penalty_match(
+        "pure generative models without retrieval",
+        "retrieval",
+    )
+    assert not negative_penalty_match("fine-tuning only approaches", "fine-tuning")
+    assert not negative_penalty_match("fine-tuning methodology", "fine-tuning")
+    assert not negative_penalty_match(
+        "traditional search engines without generation",
+        "generation",
+    )
+    assert negative_penalty_match("fruit", "fruit")
+    assert negative_penalty_match("payroll", "payroll")
+
+
+def test_contrastive_mention_skips_penalty_in_scoring():
+    query = SWAGProfile(
+        primary_concepts=["retrieval augmented generation"],
+        negative_contexts=["fine-tuning methodology"],
+    )
+    chunk = SWAGProfile(
+        primary_concepts=["retrieval augmented generation"],
+        domain_terms=["fine-tuning"],
+        confidence=0.8,
+    )
+    contrast_text = (
+        "RAG augments LLMs with retrieval instead of relying on fine-tuning alone."
+    )
+    score, explanations = score_swag_alignment(query, chunk, chunk_text=contrast_text)
+    assert score > 0.0
+    assert not any(
+        e.startswith("Penalty: query negative context") for e in explanations
+    )
+
+
+def test_term_mentioned_contrastively():
+    text = "We compare RAG versus fine-tuning-only approaches in this guide."
+    assert term_mentioned_contrastively("fine-tuning", text)
+    assert not term_mentioned_contrastively("blockchain", text)

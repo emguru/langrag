@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     # Corrective RAG (CRAG)
     crag_enabled: bool = True
-    crag_grader_model: str = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+    crag_grader_model: str = "us.anthropic.claude-3-haiku-20240307-v1:0"
     crag_retrieve_multiplier: int = 2
     crag_relevant_score: float = 0.55
     crag_ambiguous_score: float = 0.35
@@ -34,11 +34,30 @@ class Settings(BaseSettings):
     # SWAG (Semantic Weighted Augmented Generation)
     swag_enabled: bool = True
     swag_ingest_profiles: bool = True
-    swag_grader_model: str = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+    # llm = Bedrock grader; heuristic = rule-based profiles (tests / low-cost demo)
+    swag_profile_mode: str = "heuristic"
+    swag_grader_model: str = "us.anthropic.claude-sonnet-4-6"
     swag_retrieval_candidates: int = 20
     swag_vector_weight: float = 0.65
     swag_weight: float = 0.30
     swag_metadata_weight: float = 0.05
+    swag_min_score_threshold: float = 0.08
+    swag_noise_vector_margin: float = 0.04
+    # Without SWAG floor, vector must be within this ratio of the top hit.
+    swag_noise_relative_vector_ratio: float = 0.65
+    # Second-pass ratio when strict gate returns fewer than top_k hits.
+    swag_noise_backfill_ratio: float = 0.58
+    swag_evaluative_blend_boost: float = 0.15
+    swag_evaluative_title_penalty: float = 0.65
+    swag_chunk_title_multiplier: float = 0.40
+    swag_chunk_nav_multiplier: float = 0.30
+    swag_chunk_boilerplate_multiplier: float = 0.02
+    swag_intent_category_boost: float = 1.25
+    swag_max_chunks_per_source: int = 3
+    swag_deduplicate_similarity: float = 0.92
+    swag_adaptive_blend: bool = True
+    swag_adaptive_vector_epsilon: float = 0.03
+    swag_adaptive_swag_boost: float = 0.12
     swag_persist_profiles: bool = True
     swag_max_terms_per_list: int = 12
     swag_max_weighted_terms: int = 24

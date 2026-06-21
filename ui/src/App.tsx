@@ -242,14 +242,14 @@ export default function App() {
   const loadLibrary = useCallback(async () => {
     const [statsResp, docsResp] = await Promise.all([
       fetch(`/api/rag/stats?collection=${DEFAULT_COLLECTION}`),
-      fetch(`/api/rag/documents?collection=${DEFAULT_COLLECTION}${topic ? `&topic=${encodeURIComponent(topic)}` : ""}`),
+      fetch(`/api/rag/documents?collection=${DEFAULT_COLLECTION}`),
     ]);
     if (statsResp.ok) setStats(await statsResp.json());
     if (docsResp.ok) {
       const data = await docsResp.json();
       setDocuments(data.documents || []);
     }
-  }, [topic]);
+  }, []);
 
   useEffect(() => {
     if (tab === "library") loadLibrary();
@@ -320,7 +320,6 @@ export default function App() {
         query: searchQuery,
         collection: DEFAULT_COLLECTION,
         top_k: 8,
-        topic: topic || undefined,
         mode: searchMode,
         compare: compareBaseline,
       }),
@@ -1003,7 +1002,14 @@ export default function App() {
           </section>
           <section className="card">
             <h2>Documents</h2>
-            {documents.length === 0 && <p className="hint">No documents indexed yet.</p>}
+            {documents.length === 0 && stats && stats.document_count > 0 && (
+              <p className="hint">
+                Indexed documents exist ({stats.document_count}) but the list failed to load — try Refresh.
+              </p>
+            )}
+            {documents.length === 0 && (!stats || stats.document_count === 0) && (
+              <p className="hint">No documents indexed yet. Run ./scripts/seed-demo-corpus.sh to load the demo set.</p>
+            )}
             <ul className="doc-list">
               {documents.map((d) => (
                 <li key={d.source}>

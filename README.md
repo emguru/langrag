@@ -36,6 +36,12 @@ cp .env.example .env                          # LANGSMITH_API_KEY
 
 Open the UI URL printed at the end.
 
+```bash
+./scripts/seed-demo-corpus.sh           # optional demo docs (topic: rag-demo)
+./scripts/validate-project.sh         # offline regression (~$0)
+./scripts/benchmark-query-battery.sh  # live SWAG eval after seed
+```
+
 ## Stop / start
 
 ```bash
@@ -56,6 +62,9 @@ scripts/
   infra-deploy.sh      cdk bootstrap + deploy
   cdk-outputs.sh       Read CloudFormation stack outputs
   deploy.sh            Build images + apply K8s manifests
+  validate-project.sh  Offline go/no-go + optional live smoke
+  seed-demo-corpus.sh  Load public RAG docs into research_docs
+  benchmark-query-battery.sh  SWAG retrieval regression (10 queries)
   demo-stop.sh         Scale to zero
   demo-start.sh        Resume demo
   demo-park.sh         cdk destroy

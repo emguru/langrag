@@ -107,15 +107,15 @@ flowchart TB
 ## 2. Retrieval pipeline (SWAG + CRAG)
 
 Single Qdrant index — **no separate SWAG vector store**. Each chunk stores Titan vectors plus `swag_profile` metadata in the same payload.  
-At ingest: vectors and SWAG profiles are written in one pass. At search: missing profiles are enriched automatically before rerank (no user re-index step).  
+At ingest: vectors and profiles written in one pass (`SWAG_PROFILE_MODE=heuristic` by default — no Bedrock). At search: missing profiles enriched before rerank.  
 Shared path for ingestion `/rag/search`, UI Search tab, and agent `rag_search` (default mode: `swag_crag`).
 
 ```mermaid
 flowchart LR
   Q[Query] --> R[Vector retrieve · Qdrant]
-  R --> P[Ensure SWAG profiles<br/>auto if missing]
-  P --> S[SWAG rerank<br/>Haiku query profile]
-  S --> G[CRAG · Haiku relevance grader]
+  R --> P[Ensure SWAG profiles<br/>heuristic or cached]
+  P --> S[SWAG rerank<br/>chunk kind · noise gate · dedup]
+  S --> G[CRAG · Haiku grader]
   G -->|relevant| F[Return filtered chunks]
   G -->|ambiguous| RW[Rewrite query · re-retrieve]
   RW --> R
@@ -123,8 +123,19 @@ flowchart LR
   W --> F
 ```
 
-**Modes** (UI Search tab): `baseline` · `swag` · `crag` · `swag_crag` (default). Optional baseline comparison side-by-side.  
-Configure with `SWAG_ENABLED`, `CRAG_ENABLED`, and Haiku model IDs on ingestion ConfigMap.
+**Modes** (UI Search tab): `baseline` · `swag` · `crag` · `swag_crag` (default). Optional baseline comparison side-by-side.
+
+**Key ConfigMap defaults** (`k8s/base/configmap.yaml`):
+
+| Setting | Default | Notes |
+|---------|---------|-------|
+| `SWAG_PROFILE_MODE` | `heuristic` | Set `llm` for Bedrock chunk/query profiles |
+| `CRAG_GRADER_MODEL` | Haiku 3 | Cheap relevance grading |
+| `SWAG_MAX_CHUNKS_PER_SOURCE` | `3` | Diversity cap per document |
+| `SWAG_NOISE_RELATIVE_VECTOR_RATIO` | `0.65` | Drop weak SWAG hits |
+| `SWAG_NOISE_BACKFILL_RATIO` | `0.58` | Second-pass fill to reach `top_k` |
+
+**Regression eval:** `./scripts/benchmark-query-battery.sh` scores 10 queries against `query_eval_cases.json` (80% pass threshold).
 
 ---
 
@@ -150,14 +161,15 @@ sequenceDiagram
   LG->>Ing: POST /rag/search (swag_crag)
   Ing->>Q: Vector retrieve candidates
   Q-->>Ing: Chunks + SWAG metadata
-  Ing->>BR: Haiku SWAG rerank + CRAG grade
-  BR-->>Ing: Reranked / graded chunks
+  Ing->>Ing: Heuristic SWAG rerank
+  Ing->>BR: Haiku CRAG grade
+  BR-->>Ing: Graded chunks
   Ing-->>LG: Filtered hits or web_fallback
-  LG->>BR: Claude Sonnet synthesis
+  LG->>BR: Claude Sonnet 4.6 synthesis
   BR-->>LG: LLM response
-  Note over LG: Coordinator → Researchers → Critic → Synthesizer
-  LG-->>UI: Stream events / final report
-  UI-->>User: Live progress + report
+  Note over LG: plan HITL → researchers → critique HITL → synthesizer → report HITL
+  LG-->>UI: SSE interrupts + report
+  UI-->>User: Live progress + editable report
   LG-->>LS: Traces (API key)
 ```
 
@@ -184,14 +196,15 @@ sequenceDiagram
   Ing->>Ing: Chunk document
   Ing->>BR: Titan Embeddings
   BR-->>Ing: Vectors
-  Ing->>BR: Haiku SWAG chunk profiles
-  BR-->>Ing: Semantic metadata
+  Ing->>Ing: Heuristic SWAG profiles + chunk kind
   Ing->>Q: Upsert vectors + SWAG payload
   Ing-->>UI: Job complete
   UI-->>User: Ready for RAG queries
 ```
 
 **URL ingest** (`POST /ingest/url`) is cluster-internal only (agents tool); SSRF checks block private IPs and metadata endpoints.
+
+**Demo seed (no upload):** `./scripts/seed-demo-corpus.sh` → topic `rag-demo`, collection `research_docs`.
 
 ---
 
@@ -259,7 +272,7 @@ flowchart LR
 
   subgraph perms["Permissions"]
     P1["bedrock:InvokeModel*<br/>Claude model only"]
-    P2["bedrock:InvokeModel<br/>Titan embed + Haiku<br/>SWAG profiles + CRAG grader"]
+    P2["bedrock:InvokeModel<br/>Titan embed + Haiku CRAG grader<br/>(+ optional SWAG llm mode)"]
     P3["s3:GetObject · PutObject"]
     P4["elasticloadbalancing:*"]
   end

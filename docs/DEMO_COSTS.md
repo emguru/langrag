@@ -93,3 +93,56 @@ You only pay when agents run. For a typical research demo (3 sub-questions, 1 sy
 - CRAG grader (Haiku): ~\$0.03–0.08 extra per research run
 
 Enable model access in the AWS Bedrock console before your first demo.
+
+## Cost allocation tags and categories
+
+Infrastructure is tagged for AWS Cost Explorer. CDK applies these tags on stack resources:
+
+| Tag | Example | Purpose |
+|-----|---------|---------|
+| `Project` | `kube-rag-langg` | Primary project filter |
+| `Environment` | `demo` | demo vs production |
+| `Component` | `eks`, `compute`, `storage`, … | Per-resource cost bucket |
+| `Workload` | `research-showcase` | Application workload |
+| `CostCenter` | `research` | Chargeback / allocation |
+| `Application` | `kube-rag-langg` | Alias for Project (Billing console) |
+| `CostCategory` | `demo` | Environment grouping |
+| `ManagedBy` | `cdk` | IaC ownership |
+
+**Component values:** `networking` (VPC/NAT/ACM), `eks`, `compute` (node group), `storage` (S3/ECR), `auth` (Cognito), `secrets`, `ml-bedrock` (budget resource).
+
+### One-time activation (Billing console)
+
+Tags must be activated once per AWS account before they appear in Cost Explorer:
+
+```bash
+chmod +x scripts/apply-cost-tags-live.sh scripts/activate-cost-allocation-tags.sh
+
+# 1) Tag existing resources (fast; no full CDK deploy)
+./scripts/apply-cost-tags-live.sh
+
+# 2) Activate tags + create Cost Category in Billing
+./scripts/activate-cost-allocation-tags.sh
+```
+
+This script:
+
+1. Activates all cost allocation tag keys (`Project`, `Component`, etc.)
+2. Creates a **Cost Category** named `KubeRagLangg Workloads` with rules by Project and Component
+
+Optional CDK context when deploying:
+
+```bash
+cd cdk && npx cdk deploy \
+  -c costCenter=research \
+  -c costOwner=you@example.com \
+  -c environment=demo
+```
+
+After changing tags in CDK, redeploy infra so existing resources pick up `Component` tags:
+
+```bash
+./scripts/infra-deploy.sh
+```
+
+**Bedrock note:** Model inference is billed under the `Amazon Bedrock` service dimension, not resource tags. Use the stack’s Bedrock budget (set `budgetAlertEmail` in CDK context) plus Cost Explorer filter `Service = Amazon Bedrock` for token spend.

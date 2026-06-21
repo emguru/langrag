@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from ingestion.config import settings
 from ingestion.swag.schemas import SemanticCategory, SWAGProfile
-from ingestion.swag.utils import fuzzy_term_match, term_grounded_in_text
+from ingestion.swag.utils import (
+    fuzzy_term_match,
+    negative_penalty_match,
+    term_grounded_in_text,
+    term_mentioned_contrastively,
+)
 
 CATEGORY_WEIGHTS: dict[SemanticCategory, float] = {
     SemanticCategory.PRIMARY_CONCEPT: 1.0,
@@ -113,11 +118,22 @@ def compute_metadata_boost(
     return min(boost, 1.0)
 
 
+def _category_weight(category: SemanticCategory, *, evaluative_query: bool) -> float:
+    base = CATEGORY_WEIGHTS.get(category, 0.5)
+    if evaluative_query and category in {
+        SemanticCategory.USER_INTENT,
+        SemanticCategory.BUSINESS_GOAL,
+    }:
+        return min(1.0, base * settings.swag_intent_category_boost)
+    return base
+
+
 def score_swag_alignment(
     query_profile: SWAGProfile,
     chunk_profile: SWAGProfile,
     *,
     chunk_text: str = "",
+    evaluative_query: bool = False,
 ) -> tuple[float, list[str]]:
     if not chunk_profile or chunk_profile.confidence == 0.0:
         return 0.0, ["No SWAG profile available for chunk"]
@@ -140,7 +156,7 @@ def score_swag_alignment(
         chunk_term_map.setdefault(term.lower(), []).append((category, weight))
 
     for q_term, q_category, q_weight in query_terms:
-        cat_weight = CATEGORY_WEIGHTS.get(q_category, 0.5)
+        cat_weight = _category_weight(q_category, evaluative_query=evaluative_query)
         term_max = q_weight * cat_weight
         max_possible += term_max
 
@@ -151,7 +167,7 @@ def score_swag_alignment(
                 continue
             grounding = _chunk_term_grounding_multiplier(c_term, chunk_text)
             for c_category, c_weight in entries:
-                c_cat_weight = CATEGORY_WEIGHTS.get(c_category, 0.5)
+                c_cat_weight = _category_weight(c_category, evaluative_query=evaluative_query)
                 match_score = (
                     q_weight * c_weight * min(cat_weight, c_cat_weight) * grounding
                 )
@@ -178,7 +194,13 @@ def score_swag_alignment(
 
     for q_neg in query_negatives:
         for c_term, entries in chunk_term_map.items():
-            if not fuzzy_term_match(q_neg, c_term):
+            if not negative_penalty_match(q_neg, c_term):
+                continue
+            if term_mentioned_contrastively(c_term, chunk_text):
+                explanations.append(
+                    f"Skipped penalty: chunk term '{c_term}' appears contrastively in text "
+                    f"for query negative '{q_neg}'"
+                )
                 continue
             negative_hits += 1
             categories = ", ".join(cat.value for cat, _ in entries)

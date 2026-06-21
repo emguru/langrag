@@ -6,6 +6,7 @@ from typing import Any
 
 from ingestion.config import settings
 from ingestion.swag.schemas import SWAGProfile, SemanticCategory, WeightedSemanticTerm
+from ingestion.swag.heuristic import heuristic_chunk_profile, heuristic_query_profile
 from ingestion.swag.validation import sanitize_profile_data
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,26 @@ SWAG_QUERY_USER_TEMPLATE = """Analyze this user query and produce a SWAG semanti
 QUERY:
 {query}
 
-Return JSON with the same structure as chunk profiles."""
+Return JSON with this exact structure:
+{{
+  "detected_domain": "string",
+  "primary_concepts": [],
+  "domain_terms": [],
+  "direct_synonyms": [],
+  "adjacent_concepts": [],
+  "business_goals": [],
+  "user_intents": [],
+  "negative_contexts": [],
+  "confidence": 0.0,
+  "weighted_terms": [
+    {{
+      "term": "example term",
+      "category": "primary_concept|domain_term|direct_synonym|adjacent_concept|business_goal|user_intent|negative_context",
+      "weight": 0.0,
+      "reason": "brief explanation tied to query intent"
+    }}
+  ]
+}}"""
 
 CATEGORY_MAP = {
     "primary_concept": SemanticCategory.PRIMARY_CONCEPT,
@@ -109,12 +129,29 @@ def _parse_weighted_terms(raw_terms: list[dict[str, Any]]) -> list[WeightedSeman
     return terms
 
 
+def _normalize_profile_json(data: dict[str, Any]) -> dict[str, Any]:
+    """Map alternate LLM key names onto the canonical SWAG profile schema."""
+    normalized = dict(data)
+    if not normalized.get("primary_concepts"):
+        for alt in ("core_concepts", "concepts", "key_concepts"):
+            if normalized.get(alt):
+                normalized["primary_concepts"] = list(normalized[alt])
+                break
+    if not normalized.get("user_intents") and normalized.get("intent"):
+        intent = normalized.get("intent")
+        normalized["user_intents"] = [intent] if isinstance(intent, str) else list(intent or [])
+    if not normalized.get("domain_terms") and normalized.get("subdomain"):
+        sub = normalized.get("subdomain")
+        normalized["domain_terms"] = [sub] if isinstance(sub, str) else list(sub or [])
+    return normalized
+
+
 def _build_profile_from_json(
     data: dict[str, Any],
     *,
     chunk_text: str | None = None,
 ) -> SWAGProfile:
-    data = sanitize_profile_data(data, chunk_text=chunk_text)
+    data = sanitize_profile_data(_normalize_profile_json(data), chunk_text=chunk_text)
     weighted_raw = data.get("weighted_terms", [])
     if weighted_raw and isinstance(weighted_raw[0], WeightedSemanticTerm):
         weighted = list(weighted_raw)
@@ -194,12 +231,20 @@ def profile_from_payload(raw: object) -> SWAGProfile | None:
 
 
 class SWAGProfileGenerator:
+    def _use_heuristic(self) -> bool:
+        return settings.swag_profile_mode.lower() == "heuristic"
+
     def generate_chunk_profile(
         self,
         chunk_text: str,
         source_filename: str = "unknown",
         page_number: int | None = None,
     ) -> SWAGProfile:
+        if self._use_heuristic():
+            return heuristic_chunk_profile(
+                chunk_text,
+                source_filename=source_filename,
+            )
         user_prompt = SWAG_CHUNK_USER_TEMPLATE.format(
             chunk_text=chunk_text,
             source_filename=source_filename,
@@ -213,6 +258,8 @@ class SWAGProfileGenerator:
             return SWAGProfile(confidence=0.0, detected_domain="unknown")
 
     def generate_query_profile(self, query: str) -> SWAGProfile:
+        if self._use_heuristic():
+            return heuristic_query_profile(query)
         user_prompt = SWAG_QUERY_USER_TEMPLATE.format(query=query)
         try:
             data = _complete_json(SWAG_SYSTEM_PROMPT, user_prompt)

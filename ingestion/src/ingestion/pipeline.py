@@ -106,7 +106,7 @@ def embed_and_upsert(
                 "topic": topic,
                 **({"document_id": doc_id} if doc_id else {}),
             }
-            if profile_generator:
+            if profile_generator and settings.swag_ingest_profiles:
                 source_name = str(chunk.get("source", "unknown")).split("/")[-1]
                 profile = profile_generator.generate_chunk_profile(
                     chunk["text"],

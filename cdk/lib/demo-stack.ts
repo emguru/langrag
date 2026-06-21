@@ -10,9 +10,13 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
+import { applyProjectCostTags, tagComponent } from "./cost-tags";
 
 export interface DemoStackProps extends cdk.StackProps {
   clusterName: string;
+  environment: string;
+  costCenter?: string;
+  costOwner?: string;
   demoMode: boolean;
   enableRds: boolean;
   enableElastiCache: boolean;
@@ -28,6 +32,9 @@ export class DemoStack extends cdk.Stack {
 
     const {
       clusterName,
+      environment,
+      costCenter,
+      costOwner,
       demoMode,
       enableRds,
       nodeInstanceType,
@@ -35,6 +42,14 @@ export class DemoStack extends cdk.Stack {
       nodeMaxSize,
       nodeDesiredSize,
     } = props;
+
+    applyProjectCostTags(this, {
+      project: clusterName,
+      environment,
+      workload: "research-showcase",
+      costCenter,
+      owner: costOwner,
+    });
 
     // ── VPC ───────────────────────────────────────────────────────────────────
     const vpc = new ec2.Vpc(this, "Vpc", {
@@ -54,6 +69,7 @@ export class DemoStack extends cdk.Stack {
         },
       ],
     });
+    tagComponent(vpc, "networking");
 
     // Tag subnets for EKS / ALB
     vpc.publicSubnets.forEach((subnet) => {
@@ -73,6 +89,7 @@ export class DemoStack extends cdk.Stack {
       kubectlLayer: new KubectlV32Layer(this, "KubectlLayer"),
       authenticationMode: eks.AuthenticationMode.API_AND_CONFIG_MAP,
     });
+    tagComponent(cluster, "eks");
 
     const adminPrincipalArn = this.node.tryGetContext("adminPrincipalArn") as
       | string
@@ -95,6 +112,7 @@ export class DemoStack extends cdk.Stack {
       subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       labels: { role: "general" },
     });
+    tagComponent(nodeGroup, "compute");
 
     // EBS CSI driver installed in bootstrap.sh to avoid SA conflict with CDK kubectl handler
 
@@ -107,15 +125,18 @@ export class DemoStack extends cdk.Stack {
       removalPolicy: demoMode ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN,
       autoDeleteObjects: demoMode,
     });
+    tagComponent(documentsBucket, "storage");
 
     // ── ECR repositories ──────────────────────────────────────────────────────
-    const ecrRepos = ["agents", "ingestion", "ui"].map((name) =>
-      new ecr.Repository(this, `Ecr${name}`, {
+    const ecrRepos = ["agents", "ingestion", "ui"].map((name) => {
+      const repo = new ecr.Repository(this, `Ecr${name}`, {
         repositoryName: `${clusterName}/${name}`,
         removalPolicy: cdk.RemovalPolicy.DESTROY,
         emptyOnDelete: true,
-      }),
-    );
+      });
+      tagComponent(repo, "storage");
+      return repo;
+    });
 
     // ── IRSA: Bedrock + S3 for agent and ingestion pods ───────────────────────
     // Namespaces must exist before CDK applies ServiceAccount manifests
@@ -153,7 +174,7 @@ export class DemoStack extends cdk.Stack {
       "amazon.titan-embed-text-v2:0";
     const cragGraderModel =
       (this.node.tryGetContext("cragGraderModel") as string | undefined) ??
-      "us.anthropic.claude-3-5-haiku-20241022-v1:0";
+      "us.anthropic.claude-3-haiku-20240307-v1:0";
 
     const bedrockInvokeResources = (modelId: string): string[] => {
       if (modelId.startsWith("us.") || modelId.startsWith("global.")) {
@@ -225,6 +246,7 @@ export class DemoStack extends cdk.Stack {
         ? cdk.RemovalPolicy.DESTROY
         : cdk.RemovalPolicy.RETAIN,
     });
+    tagComponent(showcaseUserPool, "auth");
 
     const showcaseClient = showcaseUserPool.addClient("ShowcaseWebClient", {
       userPoolClientName: "showcase-web",
@@ -265,6 +287,7 @@ export class DemoStack extends cdk.Stack {
         validation: acm.CertificateValidation.fromDns(),
       });
       ingressCertificateArn = cert.certificateArn;
+      tagComponent(cert, "networking");
     }
 
     const cognitoHostedDomain = `${cognitoDomainPrefix}.auth.${this.region}.amazoncognito.com`;
@@ -276,7 +299,7 @@ export class DemoStack extends cdk.Stack {
       (this.node.tryGetContext("bedrockBudgetUsd") as number | undefined) ?? 50;
 
     if (budgetAlertEmail) {
-      new budgets.CfnBudget(this, "BedrockBudget", {
+      const bedrockBudget = new budgets.CfnBudget(this, "BedrockBudget", {
         budget: {
           budgetName: `${clusterName}-bedrock-monthly`,
           budgetType: "COST",
@@ -320,6 +343,7 @@ export class DemoStack extends cdk.Stack {
           },
         ],
       });
+      tagComponent(bedrockBudget, "ml-bedrock");
     }
 
     // ── Secrets Manager ───────────────────────────────────────────────────────
@@ -342,6 +366,7 @@ export class DemoStack extends cdk.Stack {
         ),
       },
     });
+    tagComponent(appSecret, "secrets");
 
     // ── Stack outputs (consumed by deploy scripts) ────────────────────────────
     new cdk.CfnOutput(this, "OutClusterName", {

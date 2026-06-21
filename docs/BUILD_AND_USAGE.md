@@ -269,7 +269,23 @@ kubectl get svc showcase-ui -n showcase
 ./scripts/demo-status.sh
 kubectl get pods -n showcase -n agents -n rag
 kubectl get networkpolicy -A
+./scripts/validate-project.sh              # offline: pytest + SWAG integrity (~$0)
+./scripts/validate-project.sh --live-smoke # + baseline search (~1 Titan embed)
 curl -k https://langrag.automatico.llc/api/health   # after DNS + Cognito ingress
+```
+
+### Step 7 — Seed demo corpus (optional)
+
+Load public RAG docs into `research_docs` without manual uploads:
+
+```bash
+./scripts/seed-demo-corpus.sh
+```
+
+Uses topic **`rag-demo`**. SWAG heuristic profiles are generated at ingest (no Bedrock). Then run the retrieval regression battery:
+
+```bash
+./scripts/benchmark-query-battery.sh   # 10 queries, scored eval sheet, exit 0 = PASS
 ```
 
 ---
@@ -286,8 +302,10 @@ curl -k https://langrag.automatico.llc/api/health   # after DNS + Cognito ingres
 | `LANGSMITH_PROJECT` | `research-showcase` | Trace project name |
 | `LLM_PROVIDER` | `bedrock` | `bedrock` or `openai` |
 | `BEDROCK_REGION` | `us-east-1` | Bedrock region |
-| `DEFAULT_LLM_MODEL` | Claude 3.5 Sonnet | Bedrock model ID |
+| `DEFAULT_LLM_MODEL` | Claude Sonnet 4.6 | Bedrock model ID (agents) |
 | `DEFAULT_EMBEDDING_MODEL` | Titan Embed v2 | Bedrock embedding model |
+| `CRAG_GRADER_MODEL` | Haiku 3 | CRAG relevance grader (ingestion) |
+| `SWAG_PROFILE_MODE` | `heuristic` | `heuristic` (free) or `llm` (Bedrock profiles) |
 | `TAVILY_API_KEY` | — | Optional web search |
 | `MAX_RESEARCHER_PARALLEL` | `2` | Parallel researcher agents |
 | `DEMO_MODE` | `true` | Demo sizing flag |
@@ -318,7 +336,7 @@ curl -k https://langrag.automatico.llc/api/health   # after DNS + Cognito ingres
 |---------|---------|-------------|
 | `MAX_UPLOAD_BYTES` | `104857600` (100 MB) | Max upload size |
 | `RATE_LIMIT_INGEST_PER_MIN` | `10` (UI), `30` (ingestion) | Ingest requests per client IP |
-| `RATE_LIMIT_RESEARCH_PER_MIN` | `5` | Research streams per client IP |
+| `RATE_LIMIT_RESEARCH_PER_MIN` | `2` (UI) | Research resume streams per client IP |
 | `CORS_ORIGINS` | `https://langrag.automatico.llc` | Allowed browser origins |
 
 ---
@@ -340,15 +358,16 @@ kubectl get svc showcase-ui -n showcase -o jsonpath='http://{.status.loadBalance
 
 ### Run a research demo
 
-1. **Enter a research topic** in the text area (e.g. *"Impact of RAG on enterprise knowledge management"*).
-2. **Optional — upload documents** for RAG:
-   - Choose a PDF, TXT, MD, or HTML file
-   - Click **Upload & index**
-   - Wait for *"Indexed N chunks"*
+1. **Enter a research topic** (e.g. *"Financial impact of a Strait of Hormuz closure"*).
+2. **Optional — seed or upload documents** for RAG (see [RAG document ingestion](#rag-document-ingestion)).
 3. Click **Start research run**.
-4. Watch **Live progress** events stream in.
-5. Read the **Research report** when complete.
-6. Click **View trace in LangSmith** (if `LANGSMITH_API_KEY` is set).
+4. **Plan review** — approve or edit sub-questions, then **Approve plan & continue**.
+5. Watch **Live progress** while researchers run (~30–45s per iteration).
+6. **Critique review** — choose **Synthesize report now** or **More research** (max 2 iterations).
+7. **Synthesis** — Sonnet may take **60–90 seconds**; button shows *Synthesizing…*
+8. **Report review** — edit the draft, then **Approve report**.
+9. If the UI stalls after synthesis, **refresh the page** or use **Reload review panel** (report is saved in LangGraph thread state).
+10. **View trace in LangSmith** (requires valid `LANGSMITH_API_KEY`).
 
 ### API endpoints (via UI gateway)
 
@@ -371,10 +390,11 @@ curl -X POST http://localhost:8001/ingest/url \
 
 ## Research agent workflow
 
-The LangGraph graph (`agents/src/research_team/graph.py`) runs:
+The LangGraph graph (`agents/src/research_team/graph.py`) runs with **human-in-the-loop interrupts**:
 
 ```
-START → Coordinator → Researchers (parallel) → Critic → [loop or] Synthesizer → END
+START → Coordinator → [plan HITL] → Researchers (parallel) → Critic → [critique HITL]
+     → Synthesizer → [report HITL] → END
 ```
 
 | Agent | Role |
@@ -382,13 +402,15 @@ START → Coordinator → Researchers (parallel) → Critic → [loop or] Synthe
 | **Coordinator** | Decomposes topic into sub-questions |
 | **Researchers** | Each investigates one sub-question using `rag_search` + optional `web_search` |
 | **Critic** | Finds gaps, contradictions; decides if ready to synthesize |
-| **Synthesizer** | Produces markdown report with citations |
+| **Synthesizer** | Produces markdown report with citations (Sonnet 4.6; long runs ~60–90s) |
+
+**HITL checkpoints:** `plan` · `critique` · `report` — each pauses until you resume via the UI.
 
 ### Tools available to researchers
 
 | Tool | Description |
 |------|-------------|
-| `rag_search` | Corrective RAG via ingestion API (grade, filter, web fallback) |
+| `rag_search` | SWAG + CRAG via ingestion API (`swag_crag` when both enabled) |
 | `web_search` | Tavily web search (requires `TAVILY_API_KEY`) |
 | `trigger_ingestion` | Ingest a URL into the vector store mid-run |
 
@@ -397,8 +419,27 @@ START → Coordinator → Researchers (parallel) → Critic → [loop or] Synthe
 In `.env` or ConfigMap:
 
 - `MAX_RESEARCHER_PARALLEL=2` — fewer parallel agents = lower Bedrock cost
-- `RAG_TOP_K=6` — chunks retrieved per query
+- `RAG_TOP_K=8` — chunks retrieved per query
+- `CRAG_GRADER_MODEL` — Haiku by default (cheap grading)
+- `SWAG_PROFILE_MODE=heuristic` — no Bedrock for SWAG profiles in demos
 - `CHUNK_SIZE` / `CHUNK_OVERLAP` — ingestion granularity
+
+---
+
+## SWAG + CRAG retrieval
+
+Augmented search runs inside the **ingestion API** (`POST /rag/search`). Same path for UI Search tab and agent `rag_search`.
+
+| Mode | Behavior |
+|------|----------|
+| `baseline` | Titan embed + Qdrant only |
+| `swag` | + heuristic/LLM profiles, rerank, noise gate, dedup |
+| `crag` | + Haiku relevance grader |
+| `swag_crag` | Full pipeline (agent default) |
+
+**UI Search tab:** compare baseline vs augmented side-by-side. **Library tab** lists all documents in `research_docs` (not filtered by the research topic field).
+
+**Eval regression:** edit `ingestion/benchmarks/query_eval_cases.json`, run `./scripts/benchmark-query-battery.sh` after deploy.
 
 ---
 
@@ -407,7 +448,15 @@ In `.env` or ConfigMap:
 ### Flow
 
 ```
-Upload (UI) → S3 (raw) → Ingestion worker → chunk → Bedrock embed → Qdrant upsert
+Upload (UI) → S3 (raw) → Ingestion worker → chunk → classify kind → embed (Titan)
+           → [heuristic or LLM SWAG profile] → Qdrant upsert
+```
+
+### Demo corpus (no upload)
+
+```bash
+./scripts/seed-demo-corpus.sh          # 5 public URLs → research_docs / rag-demo
+./scripts/seed-demo-corpus.sh RECREATE=1   # wipe collection and re-ingest
 ```
 
 ### Supported formats
@@ -419,13 +468,15 @@ Upload (UI) → S3 (raw) → Ingestion worker → chunk → Bedrock embed → Qd
 
 ### Collections
 
-Documents are scoped by **topic** and **collection** (default: `research_docs`). Use the same collection name in the UI when researching.
+Documents are scoped by **topic** (metadata tag) and **collection** (default: `research_docs`). The **Library** tab shows all documents in the collection. Research agents search the full collection unless you add topic-scoped tooling later.
 
 ### Verify indexed documents
 
 ```bash
-kubectl port-forward -n rag svc/qdrant 6333:6333
-curl http://localhost:6333/collections/research_docs
+kubectl exec -n rag deploy/ingestion -- python3 -c "
+import httpx
+print(httpx.get('http://127.0.0.1:8001/rag/stats', params={'collection':'research_docs'}).json())
+"
 ```
 
 ---
@@ -538,9 +589,38 @@ Enable model access in **AWS Console → Bedrock → Model access**.
 
 ### Empty RAG results
 
-1. Upload documents **before** running research
-2. Use the same **collection** name in upload and research
-3. Check ingestion logs: `kubectl logs -n rag -l app=ingestion`
+1. Seed or upload documents first (`seed-demo-corpus.sh` or Ingest tab)
+2. Use collection **`research_docs`** (only allowed collection in demo)
+3. Do **not** rely on the research topic field to filter Search — it is for tagging uploads only
+4. Check ingestion logs: `kubectl logs -n rag -l app=ingestion`
+
+### Research stuck on "Synthesizing…"
+
+Synthesis can take **60–90 seconds** on Sonnet for long reports. Check agent queue:
+
+```bash
+kubectl logs -n agents deploy/research-agents --tail=30 | grep -E 'n_running|Background run'
+```
+
+If `n_running=0` and logs show `Background run succeeded`, refresh the UI or call:
+
+```bash
+curl -s "https://langrag.automatico.llc/api/research/state?thread_id=<THREAD_ID>" | jq .checkpoint
+```
+
+Expected checkpoint after synthesis: **`report`**.
+
+### LangSmith 401 warnings
+
+Invalid or expired `LANGSMITH_API_KEY` logs warnings in agent/ingestion pods but does not block research. Update the key in Secrets Manager / `app-secrets` and restart pods.
+
+### SWAG eval failures
+
+```bash
+./scripts/benchmark-query-battery.sh 2>/dev/null | tail -15
+```
+
+Tune expectations in `ingestion/benchmarks/query_eval_cases.json` or SWAG thresholds in `k8s/base/configmap.yaml`.
 
 ### Qdrant PVC pending
 

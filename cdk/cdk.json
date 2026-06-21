@@ -22,7 +22,7 @@
     "bedrockBudgetUsd": 50,
     "defaultLlmModel": "us.anthropic.claude-sonnet-4-6",
     "defaultEmbeddingModel": "amazon.titan-embed-text-v2:0",
-    "cragGraderModel": "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+    "cragGraderModel": "us.anthropic.claude-3-haiku-20240307-v1:0",
     "demoMode": true,
     "enableRds": false,
     "enableElastiCache": false,
