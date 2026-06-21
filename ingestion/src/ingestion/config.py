@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     swag_weight: float = 0.30
     swag_metadata_weight: float = 0.05
     swag_persist_profiles: bool = True
+    swag_max_terms_per_list: int = 12
+    swag_max_weighted_terms: int = 24
+    swag_max_term_chars: int = 80
+    swag_max_reason_chars: int = 120
+    swag_max_domain_chars: int = 64
+    swag_ungrounded_term_weight_multiplier: float = 0.35
+    swag_grounding_min_token_ratio: float = 0.5
+    swag_fuzzy_min_token_len: int = 4
 
 
 settings = Settings()

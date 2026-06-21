@@ -59,6 +59,7 @@ def rerank_hits_with_swag(
             swag_score, swag_explanations = score_swag_alignment(
                 query_profile_obj.swag_profile,
                 chunk_profile,
+                chunk_text=str(hit.get("text") or ""),
             )
             metadata_boost = compute_metadata_boost(
                 chunk_profile=chunk_profile,

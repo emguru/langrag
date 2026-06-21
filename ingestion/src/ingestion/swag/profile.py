@@ -6,6 +6,7 @@ from typing import Any
 
 from ingestion.config import settings
 from ingestion.swag.schemas import SWAGProfile, SemanticCategory, WeightedSemanticTerm
+from ingestion.swag.validation import sanitize_profile_data
 
 logger = logging.getLogger(__name__)
 
@@ -108,8 +109,17 @@ def _parse_weighted_terms(raw_terms: list[dict[str, Any]]) -> list[WeightedSeman
     return terms
 
 
-def _build_profile_from_json(data: dict[str, Any]) -> SWAGProfile:
-    weighted = _parse_weighted_terms(data.get("weighted_terms", []))
+def _build_profile_from_json(
+    data: dict[str, Any],
+    *,
+    chunk_text: str | None = None,
+) -> SWAGProfile:
+    data = sanitize_profile_data(data, chunk_text=chunk_text)
+    weighted_raw = data.get("weighted_terms", [])
+    if weighted_raw and isinstance(weighted_raw[0], WeightedSemanticTerm):
+        weighted = list(weighted_raw)
+    else:
+        weighted = _parse_weighted_terms(weighted_raw)
     lists = {
         "primary_concepts": list(data.get("primary_concepts", [])),
         "domain_terms": list(data.get("domain_terms", [])),
@@ -197,7 +207,7 @@ class SWAGProfileGenerator:
         )
         try:
             data = _complete_json(SWAG_SYSTEM_PROMPT, user_prompt)
-            return _build_profile_from_json(data)
+            return _build_profile_from_json(data, chunk_text=chunk_text)
         except Exception as exc:
             logger.warning("SWAG chunk profile generation failed: %s", exc)
             return SWAGProfile(confidence=0.0, detected_domain="unknown")
@@ -206,7 +216,7 @@ class SWAGProfileGenerator:
         user_prompt = SWAG_QUERY_USER_TEMPLATE.format(query=query)
         try:
             data = _complete_json(SWAG_SYSTEM_PROMPT, user_prompt)
-            return _build_profile_from_json(data)
+            return _build_profile_from_json(data, chunk_text=None)
         except Exception as exc:
             logger.warning("SWAG query profile generation failed: %s", exc)
             return SWAGProfile(

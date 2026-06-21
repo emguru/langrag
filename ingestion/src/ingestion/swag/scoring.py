@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from ingestion.config import settings
 from ingestion.swag.schemas import SemanticCategory, SWAGProfile
-from ingestion.swag.utils import fuzzy_term_match
+from ingestion.swag.utils import fuzzy_term_match, term_grounded_in_text
 
 CATEGORY_WEIGHTS: dict[SemanticCategory, float] = {
     SemanticCategory.PRIMARY_CONCEPT: 1.0,
@@ -16,9 +17,24 @@ CATEGORY_WEIGHTS: dict[SemanticCategory, float] = {
 NEGATIVE_MATCH_PENALTY = 0.4
 
 
-def _extract_query_terms(query_profile: SWAGProfile) -> list[tuple[str, SemanticCategory, float]]:
+def _extract_negative_terms(profile: SWAGProfile) -> list[str]:
+    negatives = list(profile.negative_contexts)
+    if profile.weighted_terms:
+        for wt in profile.weighted_terms:
+            if wt.category == SemanticCategory.NEGATIVE_CONTEXT and wt.term not in negatives:
+                negatives.append(wt.term)
+    return negatives
+
+
+def _extract_positive_query_terms(
+    query_profile: SWAGProfile,
+) -> list[tuple[str, SemanticCategory, float]]:
     if query_profile.weighted_terms:
-        return [(wt.term, wt.category, wt.weight) for wt in query_profile.weighted_terms]
+        return [
+            (wt.term, wt.category, wt.weight)
+            for wt in query_profile.weighted_terms
+            if wt.category != SemanticCategory.NEGATIVE_CONTEXT
+        ]
 
     terms: list[tuple[str, SemanticCategory, float]] = []
     for concept in query_profile.primary_concepts:
@@ -38,7 +54,11 @@ def _extract_query_terms(query_profile: SWAGProfile) -> list[tuple[str, Semantic
 
 def _extract_chunk_terms(chunk_profile: SWAGProfile) -> list[tuple[str, SemanticCategory, float]]:
     if chunk_profile.weighted_terms:
-        return [(wt.term, wt.category, wt.weight) for wt in chunk_profile.weighted_terms]
+        return [
+            (wt.term, wt.category, wt.weight)
+            for wt in chunk_profile.weighted_terms
+            if wt.category != SemanticCategory.NEGATIVE_CONTEXT
+        ]
 
     terms: list[tuple[str, SemanticCategory, float]] = []
     for concept in chunk_profile.primary_concepts:
@@ -53,9 +73,15 @@ def _extract_chunk_terms(chunk_profile: SWAGProfile) -> list[tuple[str, Semantic
         terms.append((goal, SemanticCategory.BUSINESS_GOAL, 0.75))
     for intent in chunk_profile.user_intents:
         terms.append((intent, SemanticCategory.USER_INTENT, 0.85))
-    for neg in chunk_profile.negative_contexts:
-        terms.append((neg, SemanticCategory.NEGATIVE_CONTEXT, 1.0))
     return terms
+
+
+def _chunk_term_grounding_multiplier(term: str, chunk_text: str) -> float:
+    if not chunk_text:
+        return 1.0
+    if term_grounded_in_text(term, chunk_text):
+        return 1.0
+    return settings.swag_ungrounded_term_weight_multiplier
 
 
 def compute_metadata_boost(
@@ -78,7 +104,10 @@ def compute_metadata_boost(
     query_words = set(original_query.lower().split()) if original_query else set()
     if query_words and source:
         filename_lower = source.lower()
-        overlap = sum(1 for word in query_words if word in filename_lower and len(word) > 3)
+        min_len = 4
+        overlap = sum(
+            1 for word in query_words if len(word) >= min_len and word in filename_lower
+        )
         boost += min(overlap * 0.1, 0.2)
 
     return min(boost, 1.0)
@@ -87,12 +116,17 @@ def compute_metadata_boost(
 def score_swag_alignment(
     query_profile: SWAGProfile,
     chunk_profile: SWAGProfile,
+    *,
+    chunk_text: str = "",
 ) -> tuple[float, list[str]]:
     if not chunk_profile or chunk_profile.confidence == 0.0:
         return 0.0, ["No SWAG profile available for chunk"]
 
-    query_terms = _extract_query_terms(query_profile)
+    query_terms = _extract_positive_query_terms(query_profile)
     chunk_terms = _extract_chunk_terms(chunk_profile)
+    query_negatives = _extract_negative_terms(query_profile)
+    chunk_negatives = _extract_negative_terms(chunk_profile)
+
     if not query_terms or not chunk_terms:
         return 0.0, ["Insufficient semantic terms for comparison"]
 
@@ -102,13 +136,8 @@ def score_swag_alignment(
     negative_hits = 0
 
     chunk_term_map: dict[str, list[tuple[SemanticCategory, float]]] = {}
-    chunk_negatives: list[str] = []
-
     for term, category, weight in chunk_terms:
-        if category == SemanticCategory.NEGATIVE_CONTEXT:
-            chunk_negatives.append(term)
-        else:
-            chunk_term_map.setdefault(term.lower(), []).append((category, weight))
+        chunk_term_map.setdefault(term.lower(), []).append((category, weight))
 
     for q_term, q_category, q_weight in query_terms:
         cat_weight = CATEGORY_WEIGHTS.get(q_category, 0.5)
@@ -118,16 +147,23 @@ def score_swag_alignment(
         best_match = 0.0
         best_reason = ""
         for c_term, entries in chunk_term_map.items():
-            if fuzzy_term_match(q_term, c_term):
-                for c_category, c_weight in entries:
-                    c_cat_weight = CATEGORY_WEIGHTS.get(c_category, 0.5)
-                    match_score = q_weight * c_weight * min(cat_weight, c_cat_weight)
-                    if match_score > best_match:
-                        best_match = match_score
-                        best_reason = (
-                            f"Query '{q_term}' ({q_category.value}) aligned with "
-                            f"chunk '{c_term}' ({c_category.value}, w={c_weight:.2f})"
-                        )
+            if not fuzzy_term_match(q_term, c_term):
+                continue
+            grounding = _chunk_term_grounding_multiplier(c_term, chunk_text)
+            for c_category, c_weight in entries:
+                c_cat_weight = CATEGORY_WEIGHTS.get(c_category, 0.5)
+                match_score = (
+                    q_weight * c_weight * min(cat_weight, c_cat_weight) * grounding
+                )
+                if match_score > best_match:
+                    best_match = match_score
+                    reason = (
+                        f"Query '{q_term}' ({q_category.value}) aligned with "
+                        f"chunk '{c_term}' ({c_category.value}, w={c_weight:.2f})"
+                    )
+                    if grounding < 1.0:
+                        reason += " [ungrounded term discounted]"
+                    best_reason = reason
 
         if best_match > 0:
             positive_score += best_match
@@ -137,8 +173,19 @@ def score_swag_alignment(
             if fuzzy_term_match(q_term, neg_term):
                 negative_hits += 1
                 explanations.append(
-                    f"Penalty: query term '{q_term}' matches negative context '{neg_term}'"
+                    f"Penalty: query term '{q_term}' matches chunk negative context '{neg_term}'"
                 )
+
+    for q_neg in query_negatives:
+        for c_term, entries in chunk_term_map.items():
+            if not fuzzy_term_match(q_neg, c_term):
+                continue
+            negative_hits += 1
+            categories = ", ".join(cat.value for cat, _ in entries)
+            explanations.append(
+                f"Penalty: query negative context '{q_neg}' matches chunk term "
+                f"'{c_term}' ({categories})"
+            )
 
     if (
         query_profile.detected_domain != "general"
