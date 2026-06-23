@@ -1,8 +1,8 @@
 {
-  "version": 1,
-  "description": "Demo corpus eval sheet — stable text markers, not document UUIDs (re-seed safe).",
+  "version": 2,
+  "description": "RAG lesson corpus (swag) + cross-domain / CRAG cases (batch-seed corpus). Text markers, not UUIDs.",
   "collection": "research_docs",
-  "top_k": 3,
+  "top_k": 8,
   "pass_threshold": 0.8,
   "cases": [
     {
@@ -118,6 +118,63 @@
           "prompt engineering",
           "Users can now interact with these models"
         ]
+      }
+    },
+    {
+      "id": "automate-rag-cross",
+      "query": "how do we automate rag",
+      "mode": "swag_crag",
+      "notes": "Mixed 6-topic corpus; SWAG→CRAG should keep RAG foundations, not web_fallback.",
+      "swag_crag": {
+        "min_hits": 1,
+        "max_hits": 4,
+        "top1_text_any": [
+          "retrieval augmented generation",
+          "LLMs are trained on a large but fixed corpus",
+          "rag-from-scratch",
+          "RAG From Scratch"
+        ],
+        "crag_action_any": ["partial_rag", "use_rag", "rewritten"],
+        "forbid_crag_action": "web_fallback"
+      }
+    },
+    {
+      "id": "three-way-ap-scoped",
+      "query": "three-way matching purchase order",
+      "mode": "swag",
+      "topic": "ap-procurement",
+      "notes": "Topic filter isolates AP domain in mixed corpus.",
+      "swag": {
+        "min_hits": 1,
+        "top_k_text_any": [
+          "procurement",
+          "invoice",
+          "purchase order",
+          "three-way",
+          "matching"
+        ]
+      }
+    },
+    {
+      "id": "invoice-cafeteria-noise",
+      "query": "invoice cafeteria menu",
+      "mode": "swag_crag",
+      "notes": "Cross-domain noise query; CRAG should clear hits (no pool backfill).",
+      "swag_crag": {
+        "max_hits": 0,
+        "crag_action": "web_fallback"
+      }
+    },
+    {
+      "id": "pancackes-typo",
+      "query": "pancackes",
+      "mode": "swag_crag",
+      "optional": true,
+      "notes": "Typo keyword search; requires a user-uploaded recipe doc in corpus. Skipped when no hits.",
+      "swag_crag": {
+        "min_hits": 1,
+        "top1_text_any": ["pancake", "pancakes", "flour"],
+        "forbid_crag_action": "web_fallback"
       }
     }
   ]

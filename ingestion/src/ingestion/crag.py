@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from ingestion.config import settings
 from ingestion.rag_store import search_documents
+from ingestion.swag.utils import tokenize_for_overlap
 
 
 class ChunkGrade(BaseModel):
@@ -52,6 +54,52 @@ def _score_fallback_grade(hit: dict) -> str:
     return "irrelevant"
 
 
+def _token_fuzzy_match(query_token: str, chunk_token: str) -> bool:
+    if query_token == chunk_token:
+        return True
+    if len(query_token) < 4 or len(chunk_token) < 4:
+        return False
+    ratio = SequenceMatcher(None, query_token, chunk_token).ratio()
+    return ratio >= settings.crag_lexical_fuzzy_ratio
+
+
+def lexical_query_matches_chunk(query: str, chunk_text: str) -> bool:
+    """True when query terms appear in chunk text (exact or close typo match)."""
+    query_tokens = [t for t in tokenize_for_overlap(query) if len(t) >= 3]
+    if not query_tokens or not chunk_text.strip():
+        return False
+    chunk_tokens = tokenize_for_overlap(chunk_text)
+    if not chunk_tokens:
+        return False
+    for q_tok in query_tokens:
+        if q_tok in chunk_tokens:
+            return True
+        for c_tok in chunk_tokens:
+            if _token_fuzzy_match(q_tok, c_tok):
+                return True
+    return False
+
+
+def _apply_lexical_rescue(query: str, graded: list[dict]) -> list[dict]:
+    """Upgrade irrelevant chunks when the grader cleared everything but text matches."""
+    if not settings.crag_lexical_rescue or not graded:
+        return graded
+    if any(h.get("relevance") in {"relevant", "ambiguous"} for h in graded):
+        return graded
+
+    rescued: list[dict] = []
+    for hit in graded:
+        text = str(hit.get("text") or "")
+        if lexical_query_matches_chunk(query, text):
+            updated = dict(hit)
+            updated["relevance"] = "ambiguous"
+            updated["lexical_rescue"] = True
+            rescued.append(updated)
+        else:
+            rescued.append(hit)
+    return rescued
+
+
 def grade_chunks(query: str, hits: list[dict]) -> list[dict]:
     if not hits:
         return []
@@ -84,7 +132,7 @@ def grade_chunks(query: str, hits: list[dict]) -> list[dict]:
         for hit in graded:
             hit["relevance"] = _score_fallback_grade(hit)
 
-    return graded
+    return _apply_lexical_rescue(query, graded)
 
 
 def rewrite_query(query: str) -> str:

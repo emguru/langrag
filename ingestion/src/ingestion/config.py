@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     crag_relevant_score: float = 0.55
     crag_ambiguous_score: float = 0.35
     crag_grade_chunk_chars: int = 600
+    # When the grader marks every chunk irrelevant, keep chunks with lexical/fuzzy
+    # query overlap (e.g. typo "pancackes" vs indexed "pancakes").
+    crag_lexical_rescue: bool = True
+    crag_lexical_fuzzy_ratio: float = 0.84
 
     # SWAG (Semantic Weighted Augmented Generation)
     swag_enabled: bool = True

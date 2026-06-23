@@ -117,14 +117,43 @@ def _check_beats_baseline_title(
     return False, "SWAG did not beat baseline title/nav at rank 1"
 
 
+def _check_max_hits(hits: list[dict], maximum: int) -> tuple[bool, str]:
+    if len(hits) <= maximum:
+        return True, f"{len(hits)} hits (<={maximum})"
+    return False, f"{len(hits)} hits (want <={maximum})"
+
+
+def _check_crag_action(crag_meta: dict | None, expected: str) -> tuple[bool, str]:
+    action = str((crag_meta or {}).get("action") or "")
+    if action == expected:
+        return True, f"crag action={action}"
+    return False, f"crag action={action or 'missing'} (want {expected})"
+
+
+def _check_crag_action_any(crag_meta: dict | None, allowed: list[str]) -> tuple[bool, str]:
+    action = str((crag_meta or {}).get("action") or "")
+    if action in allowed:
+        return True, f"crag action={action}"
+    return False, f"crag action={action or 'missing'} (want one of {allowed})"
+
+
+def _check_forbid_crag_action(crag_meta: dict | None, forbidden: str) -> tuple[bool, str]:
+    action = str((crag_meta or {}).get("action") or "")
+    if action == forbidden:
+        return False, f"crag action={forbidden} (forbidden)"
+    return True, f"crag action={action or 'none'}"
+
+
 def score_case(
     case: dict[str, Any],
     *,
     swag_hits: list[dict],
     baseline_hits: list[dict],
     top_k: int,
+    crag_meta: dict | None = None,
+    spec_key: str = "swag",
 ) -> dict[str, Any]:
-    spec = case.get("swag") or {}
+    spec = case.get(spec_key) or case.get("swag") or {}
     checks: dict[str, bool] = {}
     details: dict[str, str] = {}
 
@@ -160,11 +189,32 @@ def score_case(
         checks["beats_baseline_title"] = ok
         details["beats_baseline_title"] = msg
 
+    if "max_hits" in spec:
+        ok, msg = _check_max_hits(swag_hits, int(spec["max_hits"]))
+        checks["max_hits"] = ok
+        details["max_hits"] = msg
+
+    if spec.get("crag_action"):
+        ok, msg = _check_crag_action(crag_meta, str(spec["crag_action"]))
+        checks["crag_action"] = ok
+        details["crag_action"] = msg
+
+    if spec.get("crag_action_any"):
+        ok, msg = _check_crag_action_any(crag_meta, list(spec["crag_action_any"]))
+        checks["crag_action_any"] = ok
+        details["crag_action_any"] = msg
+
+    if spec.get("forbid_crag_action"):
+        ok, msg = _check_forbid_crag_action(crag_meta, str(spec["forbid_crag_action"]))
+        checks["forbid_crag_action"] = ok
+        details["forbid_crag_action"] = msg
+
     passed = bool(checks) and all(checks.values())
     return {
         "id": case.get("id"),
         "query": case.get("query"),
         "notes": case.get("notes"),
+        "mode": case.get("mode", spec_key if spec_key != "swag" else "swag"),
         "passed": passed,
         "checks": checks,
         "details": details,
@@ -173,14 +223,17 @@ def score_case(
 
 
 def summarize_eval(results: list[dict[str, Any]], threshold: float) -> dict[str, Any]:
-    total = len(results)
-    passed = sum(1 for row in results if row.get("passed"))
+    scored = [row for row in results if not row.get("skipped")]
+    skipped = sum(1 for row in results if row.get("skipped"))
+    total = len(scored)
+    passed = sum(1 for row in scored if row.get("passed"))
     ratio = passed / total if total else 0.0
     verdict = "PASS" if ratio >= threshold else "FAIL"
     return {
         "verdict": verdict,
         "passed": passed,
         "total": total,
+        "skipped": skipped,
         "pass_ratio": round(ratio, 3),
         "pass_threshold": threshold,
     }
@@ -195,8 +248,13 @@ def format_eval_report(summary: dict[str, Any], results: list[dict[str, Any]]) -
             f"threshold {summary['pass_threshold']:.0%})"
         ),
     ]
+    if summary.get("skipped"):
+        lines.append(f"Skipped (optional / missing corpus): {summary['skipped']}")
     for row in results:
-        mark = "PASS" if row.get("passed") else "FAIL"
+        if row.get("skipped"):
+            mark = "SKIP"
+        else:
+            mark = "PASS" if row.get("passed") else "FAIL"
         cid = row.get("id") or row.get("query")
         detail_bits = [
             row.get("details", {}).get(key)

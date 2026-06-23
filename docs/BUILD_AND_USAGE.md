@@ -297,7 +297,7 @@ print('points:', c.get_collection('research_docs').points_count)
 |---------|--------------|---------|
 | `validate-project.sh` | $0 | pytest + offline SWAG |
 | `validate-project.sh --live-smoke` | ~1 embed | Cluster health + baseline search |
-| `benchmark-query-battery.sh` | ~20 embeds | 10-query regression (80% pass) |
+| `benchmark-query-battery.sh` | ~30 embeds + optional Haiku on CRAG cases | 14-case regression (80% pass); see [TUNING_PLAN.md](./TUNING_PLAN.md) |
 
 Edit expectations: `ingestion/benchmarks/query_eval_cases.json`.
 
@@ -343,6 +343,7 @@ Full detail: [SECURITY.md](./SECURITY.md) · [COGNITO.md](./COGNITO.md)
 | Bedrock AccessDenied | Enable models in Bedrock console |
 | 0 search hits | Run `seed-demo-corpus.sh`; check topic `rag-demo` |
 | Off-topic returns hits | Should be blocked — check `RAG_MIN_VECTOR_SCORE` |
+| Keyword/typo query returns 0 in SWAG→CRAG | CRAG grader may mark all chunks irrelevant; `CRAG_LEXICAL_RESCUE=true` keeps fuzzy text matches (e.g. `pancackes` → `pancakes`) |
 | Only 1 chunk per doc | Enable `RAG_EXPAND_SAME_DOCUMENT`; use `swag_crag` |
 | Synthesis stuck | Wait 60–90s; refresh UI; check agent logs |
 | Qdrant PVC pending | Re-run `./scripts/bootstrap.sh` (EBS CSI IRSA) |

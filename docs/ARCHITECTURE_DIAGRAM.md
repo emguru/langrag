@@ -266,7 +266,7 @@ See [DEMO_COSTS.md](./DEMO_COSTS.md) — avoid EKS **extended support** (~$360/m
 |--------|------|--------|
 | `./scripts/validate-project.sh` | $0 | pytest + offline SWAG integrity |
 | `./scripts/validate-project.sh --live-smoke` | ~1 Titan embed | Health + baseline search |
-| `./scripts/benchmark-query-battery.sh` | ~20 embeds | 10-query eval sheet, 80% pass |
+| `./scripts/benchmark-query-battery.sh` | ~30 embeds + CRAG cases | 14-case eval sheet, 80% pass |
 
 ---
 
@@ -275,6 +275,7 @@ See [DEMO_COSTS.md](./DEMO_COSTS.md) — avoid EKS **extended support** (~$360/m
 | Doc | Purpose |
 |-----|---------|
 | [BUILD_AND_USAGE.md](./BUILD_AND_USAGE.md) | Step-by-step deploy and usage |
+| [TUNING_PLAN.md](./TUNING_PLAN.md) | Cost-conscious seeding and SWAG/CRAG tuning loop |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Design decisions |
 | [DEMO_COSTS.md](./DEMO_COSTS.md) | Billing by mode |
 | [SECURITY.md](./SECURITY.md) | Auth and guardrails |

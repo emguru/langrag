@@ -106,6 +106,7 @@ The `terraform/` directory is retained for reference but **CDK is the supported 
 | [docs/ARCHITECTURE_DIAGRAM.md](docs/ARCHITECTURE_DIAGRAM.md) | **Architecture diagrams** (Mermaid) |
 | [docs/architecture-diagram.html](docs/architecture-diagram.html) | Browser-viewable diagrams |
 | [docs/BUILD_AND_USAGE.md](docs/BUILD_AND_USAGE.md) | **Full build & usage guide** |
+| [docs/TUNING_PLAN.md](docs/TUNING_PLAN.md) | Cost-conscious seeding and tuning workflow |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Design decisions |
 | [docs/DEMO_COSTS.md](docs/DEMO_COSTS.md) | Cost & lifecycle |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Operator quick reference |

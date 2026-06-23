@@ -50,6 +50,7 @@ data:
   RAG_COMPARE_SYMMETRIC_BASELINE: "true"
   CRAG_ENABLED: "true"
   CRAG_GRADER_MODEL: "us.anthropic.claude-3-haiku-20240307-v1:0"
+  CRAG_LEXICAL_RESCUE: "true"
   SWAG_ENABLED: "true"
   SWAG_INGEST_PROFILES: "true"
   # heuristic = rule-based SWAG profiles (no Bedrock); llm = Sonnet/Haiku grader
