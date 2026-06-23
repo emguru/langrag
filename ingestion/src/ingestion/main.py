@@ -80,6 +80,9 @@ class RagSearchResponse(BaseModel):
     crag: dict | None = None
     baseline_hits: list[dict] | None = None
     comparison: dict | None = None
+    lift: dict | None = None
+    confidence: dict | None = None
+    expansion: dict | None = None
 
 
 @app.get("/health")
@@ -254,6 +257,9 @@ def rag_search(request: Request, body: RagSearchRequest):
         crag=result.get("crag"),
         baseline_hits=result.get("baseline_hits"),
         comparison=result.get("comparison"),
+        lift=result.get("lift"),
+        confidence=result.get("confidence"),
+        expansion=result.get("expansion"),
     )
 
 

@@ -67,19 +67,30 @@ aws iam attach-role-policy --role-name "${ROLE_NAME}" --policy-arn "${MANAGED_PO
 ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${ROLE_NAME}"
 echo "    Role: ${ROLE_ARN}"
 
-echo "==> Updating EBS CSI EKS addon with IRSA role..."
-aws eks update-addon \
+echo "==> Ensuring EBS CSI EKS addon with IRSA role..."
+if aws eks describe-addon \
   --cluster-name "${CLUSTER_NAME}" \
   --addon-name aws-ebs-csi-driver \
-  --service-account-role-arn "${ROLE_ARN}" \
-  --resolve-conflicts OVERWRITE \
-  --region "${AWS_REGION}"
+  --region "${AWS_REGION}" &>/dev/null; then
+  aws eks update-addon \
+    --cluster-name "${CLUSTER_NAME}" \
+    --addon-name aws-ebs-csi-driver \
+    --service-account-role-arn "${ROLE_ARN}" \
+    --resolve-conflicts OVERWRITE \
+    --region "${AWS_REGION}"
+else
+  aws eks create-addon \
+    --cluster-name "${CLUSTER_NAME}" \
+    --addon-name aws-ebs-csi-driver \
+    --service-account-role-arn "${ROLE_ARN}" \
+    --resolve-conflicts OVERWRITE \
+    --region "${AWS_REGION}"
+fi
 
 aws eks wait addon-active \
   --cluster-name "${CLUSTER_NAME}" \
   --addon-name aws-ebs-csi-driver \
-  --region "${AWS_REGION}" \
-  --max-attempts 30
+  --region "${AWS_REGION}"
 
 aws eks update-kubeconfig --region "${AWS_REGION}" --name "${CLUSTER_NAME}" >/dev/null
 

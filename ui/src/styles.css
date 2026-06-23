@@ -374,6 +374,113 @@ button.secondary {
   margin-bottom: 0.75rem;
 }
 
+.lift-panel {
+  margin-bottom: 1.25rem;
+  padding: 1rem;
+  border: 1px solid #2a3544;
+  border-radius: 10px;
+  background: #121a24;
+}
+
+.lift-panel h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.lift-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.85rem;
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 900px) {
+  .lift-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.lift-card {
+  border: 1px solid #2a3544;
+  border-radius: 10px;
+  padding: 0.85rem;
+  background: #0f1419;
+}
+
+.lift-card.lift-positive {
+  border-color: #166534;
+}
+
+.lift-card h4 {
+  margin: 0 0 0.65rem;
+  font-size: 0.95rem;
+  color: #e7ecf3;
+}
+
+.lift-metrics {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.lift-metrics li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid #1f2937;
+}
+
+.lift-metrics li:last-child {
+  border-bottom: none;
+}
+
+.lift-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #4ade80;
+}
+
+.lift-label {
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.lift-none {
+  margin: 0.25rem 0 0.5rem;
+}
+
+.lift-footnote {
+  display: block;
+  margin-top: 0.5rem;
+  color: #64748b;
+  font-size: 0.72rem;
+}
+
+.confidence-banner {
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #92400e;
+  border-radius: 10px;
+  background: rgba(146, 64, 14, 0.15);
+}
+
+.confidence-banner strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: #fbbf24;
+}
+
+.confidence-banner p {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+}
+
+.confidence-banner small {
+  color: #94a3b8;
+  font-size: 0.78rem;
+}
+
 .compare-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

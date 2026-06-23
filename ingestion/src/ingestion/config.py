@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     chunk_overlap: int = 200
     batch_size: int = 32
     rag_top_k: int = 8
+    # Minimum top vector similarity to return hits (0 = disabled). Blocks off-corpus junk.
+    rag_min_vector_score: float = 0.12
+    # When a chunk passes filtering, include same-document siblings from the retrieval pool.
+    rag_expand_same_document: bool = True
+    rag_same_document_max_per_doc: int = 12
     max_upload_bytes: int = 100 * 1024 * 1024
     max_fetch_bytes: int = 100 * 1024 * 1024
     rate_limit_ingest_per_min: int = 30

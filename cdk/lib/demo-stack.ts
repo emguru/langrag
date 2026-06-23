@@ -1,6 +1,7 @@
 import * as budgets from "aws-cdk-lib/aws-budgets";
 import * as cdk from "aws-cdk-lib";
-import { KubectlV32Layer } from "@aws-cdk/lambda-layer-kubectl-v32";
+import * as cr from "aws-cdk-lib/custom-resources";
+import { KubectlV35Layer } from "@aws-cdk/lambda-layer-kubectl-v35";
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
@@ -83,12 +84,41 @@ export class DemoStack extends cdk.Stack {
     const cluster = new eks.Cluster(this, "Cluster", {
       clusterName,
       vpc,
-      version: eks.KubernetesVersion.V1_32,
+      version: eks.KubernetesVersion.V1_35,
       defaultCapacity: 0,
       endpointAccess: eks.EndpointAccess.PUBLIC,
-      kubectlLayer: new KubectlV32Layer(this, "KubectlLayer"),
+      kubectlLayer: new KubectlV35Layer(this, "KubectlLayer"),
       authenticationMode: eks.AuthenticationMode.API_AND_CONFIG_MAP,
     });
+    // CDK's cluster custom resource defaults to EXTENDED support (~$0.50/hr extra once
+    // the version leaves standard support). Force STANDARD so AWS auto-upgrades instead.
+    const upgradePolicy = new cr.AwsCustomResource(this, "EksStandardUpgradePolicy", {
+      onCreate: {
+        service: "EKS",
+        action: "updateClusterConfig",
+        parameters: {
+          name: clusterName,
+          upgradePolicy: { supportType: "STANDARD" },
+        },
+        physicalResourceId: cr.PhysicalResourceId.of(`eks-upgrade-policy-${clusterName}`),
+      },
+      onUpdate: {
+        service: "EKS",
+        action: "updateClusterConfig",
+        parameters: {
+          name: clusterName,
+          upgradePolicy: { supportType: "STANDARD" },
+        },
+        physicalResourceId: cr.PhysicalResourceId.of(`eks-upgrade-policy-${clusterName}`),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromStatements([
+        new iam.PolicyStatement({
+          actions: ["eks:UpdateClusterConfig"],
+          resources: [cluster.clusterArn],
+        }),
+      ]),
+    });
+    upgradePolicy.node.addDependency(cluster);
     tagComponent(cluster, "eks");
 
     const adminPrincipalArn = this.node.tryGetContext("adminPrincipalArn") as
@@ -105,6 +135,7 @@ export class DemoStack extends cdk.Stack {
     const nodeGroup = new eks.Nodegroup(this, "GeneralNodeGroup", {
       cluster,
       nodegroupName: "general",
+      amiType: eks.NodegroupAmiType.AL2023_X86_64_STANDARD,
       instanceTypes: [new ec2.InstanceType(nodeInstanceType)],
       minSize: nodeMinSize,
       maxSize: nodeMaxSize,

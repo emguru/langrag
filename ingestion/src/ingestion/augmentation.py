@@ -3,8 +3,11 @@ from __future__ import annotations
 from typing import Literal
 
 from ingestion.config import settings
+from ingestion.confidence import apply_vector_confidence_floor
 from ingestion.crag import grade_chunks, rewrite_query, search_with_crag
+from ingestion.lift_metrics import compute_lift_metrics
 from ingestion.rag_store import search_documents
+from ingestion.same_document_expansion import expand_same_document_siblings
 from ingestion.swag.rerank import compute_rank_changes, rerank_hits_with_swag
 
 AugmentationMode = Literal["baseline", "swag", "crag", "swag_crag"]
@@ -106,6 +109,41 @@ def _candidate_pool_size(top_k: int) -> int:
     )
 
 
+def _confidence_blocked_response(
+    query: str,
+    *,
+    collection_name: str,
+    limit: int,
+    mode: AugmentationMode,
+    compare: bool,
+    confidence: dict,
+) -> dict:
+    response: dict = {
+        "query": query,
+        "hits": [],
+        "collection": collection_name,
+        "mode": mode,
+        "confidence": confidence,
+        "swag": None,
+        "crag": None,
+    }
+    if compare:
+        response["baseline_hits"] = []
+        response["comparison"] = {
+            "baseline_count": 0,
+            "augmented_count": 0,
+            "rank_changes": [],
+        }
+        empty = compute_lift_metrics([], [], top_k=limit, pipeline="swag")
+        response["lift"] = {
+            "baseline_top_k": limit,
+            "swag": {**empty, "pipeline": "swag"},
+            "crag": {**empty, "pipeline": "crag"},
+            "swag_crag": {**empty, "pipeline": "swag_crag"},
+        }
+    return response
+
+
 def search_with_augmentation(
     query: str,
     *,
@@ -125,31 +163,59 @@ def search_with_augmentation(
         topic=topic,
     )
 
+    _, confidence = apply_vector_confidence_floor(baseline_hits)
+    crag_can_fallback = mode in ("crag", "swag_crag") and settings.crag_enabled
+    if confidence and not crag_can_fallback:
+        return _confidence_blocked_response(
+            query,
+            collection_name=collection_name,
+            limit=limit,
+            mode=mode,
+            compare=compare,
+            confidence=confidence,
+        )
+
     swag_meta: dict | None = None
     crag_meta: dict | None = None
+    expansion_meta: dict | None = None
     hits: list[dict]
+    candidate_pool = baseline_hits
 
     if mode == "baseline":
+        if settings.rag_expand_same_document:
+            candidate_pool = search_documents(
+                query,
+                collection=collection,
+                top_k=_candidate_pool_size(limit),
+                topic=topic,
+            )
         hits = baseline_hits
     elif mode == "swag":
         if not settings.swag_enabled:
             hits = baseline_hits
             swag_meta = {"enabled": False, "reason": "SWAG disabled in config"}
         else:
-            candidates = search_documents(
+            candidate_pool = search_documents(
                 query,
                 collection=collection,
                 top_k=_candidate_pool_size(limit),
                 topic=topic,
             )
             hits, swag_meta = rerank_hits_with_swag(
-                query, candidates, collection=collection, top_k=limit
+                query, candidate_pool, collection=collection, top_k=limit
             )
     elif mode == "crag":
         if not settings.crag_enabled:
             hits = baseline_hits
             crag_meta = {"enabled": False, "reason": "CRAG disabled in config"}
         else:
+            if settings.rag_expand_same_document:
+                candidate_pool = search_documents(
+                    query,
+                    collection=collection,
+                    top_k=_candidate_pool_size(limit),
+                    topic=topic,
+                )
             result = search_with_crag(
                 query,
                 collection=collection,
@@ -164,14 +230,14 @@ def search_with_augmentation(
         if not settings.swag_enabled and not settings.crag_enabled:
             hits = baseline_hits
         elif settings.swag_enabled:
-            candidates = search_documents(
+            candidate_pool = search_documents(
                 query,
                 collection=collection,
                 top_k=_candidate_pool_size(limit),
                 topic=topic,
             )
             swag_hits, swag_meta = rerank_hits_with_swag(
-                query, candidates, collection=collection, top_k=limit
+                query, candidate_pool, collection=collection, top_k=limit
             )
             if settings.crag_enabled:
                 hits, crag_meta = _apply_crag_to_hits(
@@ -185,6 +251,13 @@ def search_with_augmentation(
             else:
                 hits = swag_hits
         else:
+            if settings.rag_expand_same_document:
+                candidate_pool = search_documents(
+                    query,
+                    collection=collection,
+                    top_k=_candidate_pool_size(limit),
+                    topic=topic,
+                )
             result = search_with_crag(
                 query,
                 collection=collection,
@@ -196,6 +269,10 @@ def search_with_augmentation(
     else:
         hits = baseline_hits
 
+    hits, expansion_meta = expand_same_document_siblings(
+        hits, candidate_pool, top_k=limit
+    )
+
     response: dict = {
         "query": query,
         "hits": hits,
@@ -203,6 +280,7 @@ def search_with_augmentation(
         "mode": mode,
         "swag": swag_meta,
         "crag": crag_meta,
+        "expansion": expansion_meta,
     }
 
     if compare:
@@ -211,6 +289,71 @@ def search_with_augmentation(
             "baseline_count": len(baseline_hits),
             "augmented_count": len(hits),
             "rank_changes": compute_rank_changes(baseline_hits, hits),
+        }
+
+        swag_hits_lift = baseline_hits
+        swag_meta_lift: dict | None = {"enabled": False, "reason": "SWAG disabled in config"}
+        if settings.swag_enabled:
+            swag_candidates = search_documents(
+                query,
+                collection=collection,
+                top_k=_candidate_pool_size(limit),
+                topic=topic,
+            )
+            swag_hits_lift, swag_meta_lift = rerank_hits_with_swag(
+                query,
+                swag_candidates,
+                collection=collection,
+                top_k=limit,
+            )
+
+        crag_hits_lift = baseline_hits
+        crag_meta_lift: dict | None = {"enabled": False, "reason": "CRAG disabled in config"}
+        if settings.crag_enabled:
+            crag_result = search_with_crag(
+                query,
+                collection=collection,
+                top_k=limit,
+                topic=topic,
+            )
+            crag_hits_lift = crag_result["hits"]
+            crag_meta_lift = crag_result.get("crag")
+
+        swag_crag_hits_lift, swag_crag_meta_lift = _apply_crag_to_hits(
+            query,
+            swag_hits_lift,
+            collection=collection,
+            top_k=limit,
+            topic=topic,
+            swag_on_retry=True,
+        )
+        if not settings.crag_enabled:
+            swag_crag_hits_lift = swag_hits_lift
+            swag_crag_meta_lift = {"enabled": False, "reason": "CRAG disabled in config"}
+
+        response["lift"] = {
+            "baseline_top_k": limit,
+            "swag": compute_lift_metrics(
+                baseline_hits,
+                swag_hits_lift,
+                top_k=limit,
+                pipeline="swag",
+                extra=swag_meta_lift,
+            ),
+            "crag": compute_lift_metrics(
+                baseline_hits,
+                crag_hits_lift,
+                top_k=limit,
+                pipeline="crag",
+                extra=crag_meta_lift,
+            ),
+            "swag_crag": compute_lift_metrics(
+                baseline_hits,
+                swag_crag_hits_lift,
+                top_k=limit,
+                pipeline="swag_crag",
+                extra=swag_crag_meta_lift,
+            ),
         }
 
     return response

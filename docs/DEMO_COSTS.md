@@ -7,8 +7,10 @@ This deployment is tuned for **intermittent demos**, not 24/7 production.
 | Mode | Command | When to use | ~Monthly cost |
 |------|---------|-------------|---------------|
 | **Running** | `./scripts/deploy.sh` | During a demo | ~\$185/mo if left on 24/7 |
-| **Stopped** | `./scripts/demo-stop.sh` | Nights, weekends | ~\$105/mo idle |
-| **Parked** | `./scripts/demo-park.sh` | Weeks/months off | ~\$0-1/mo (S3 only) |
+| **Stopped** | `./scripts/demo-stop.sh` | Nights, weekends | ~\$73/mo EKS + NAT (~\$105) if cluster exists |
+| **Parked** | `./scripts/demo-park.sh` | Weeks/months off | ~\$0-1/mo (S3/ECR only) |
+
+**Important:** `demo-stop.sh` scales nodes to zero and removes the load balancer, but the **EKS control plane and NAT gateway keep billing**. Only `demo-park.sh` (CDK destroy) stops those charges.
 
 Check current state anytime: `./scripts/demo-status.sh`
 
@@ -42,11 +44,26 @@ To minimize cost, demo mode (`demo_mode = true` in Terraform) disables:
 
 | Still running | Cost |
 |---------------|------|
-| EKS control plane | \$73/mo |
-| NAT gateway | \$32/mo |
+| EKS control plane (standard support) | ~\$73/mo (~\$2.40/day) |
+| NAT gateway | ~\$32/mo |
 | EBS volumes (data preserved) | ~\$2/mo |
 | LoadBalancer | **\$0** (deleted on stop) |
 | EC2 nodes | **\$0** (scaled to 0) |
+
+### EKS extended support (avoid this)
+
+AWS **defaults new clusters to `EXTENDED` upgrade policy**. When your Kubernetes version leaves standard support, AWS keeps the cluster on that version and bills an **extra ~\$0.50/hr** (~\$360/mo) on top of the normal control-plane fee. Cost Explorer shows this as `USE1-AmazonEKS-Hours:extendedSupport`.
+
+This project sets **`upgradePolicy: STANDARD`** via CDK (`EksStandardUpgradePolicy` custom resource in `cdk/lib/demo-stack.ts`) and again in `scripts/bootstrap.sh`. The cluster **auto-upgrades** at end of standard support instead of accruing extended-support charges.
+
+If you ever see extended-support line items on a live cluster:
+
+```bash
+aws eks update-cluster-config --name kube-rag-langg \
+  --upgrade-policy supportType=STANDARD
+```
+
+Or destroy with `demo-park.sh` when not demoing.
 
 ### While parked (`demo-park.sh`)
 

@@ -1,327 +1,255 @@
 # Architecture Diagram
 
-Visual reference for the **Kube RAG LangGraph** demo deployment (CDK + EKS).  
-Open [architecture-diagram.html](./architecture-diagram.html) in a browser for an interactive view.
+Visual reference for the **Kube RAG LangGraph** demo on AWS (CDK + EKS).
 
-**Security model:** [SECURITY.md](./SECURITY.md)
+- **Build & operate:** [BUILD_AND_USAGE.md](./BUILD_AND_USAGE.md)
+- **Interactive view:** [architecture-diagram.html](./architecture-diagram.html)
+- **Security:** [SECURITY.md](./SECURITY.md)
 
 ---
 
-## 1. High-level deployment (security-conscious demo)
+## 1. High-level deployment
 
-What exists after `./scripts/infra-deploy.sh`, `./scripts/bootstrap.sh`, and `./scripts/deploy.sh` with HTTPS + Cognito enabled:
+After `./scripts/infra-deploy.sh` → `./scripts/bootstrap.sh` → `./scripts/deploy.sh` (with HTTPS + Cognito):
 
 ```mermaid
 flowchart TB
   subgraph external["Outside AWS"]
-    User["Demo user<br/>(browser)"]
-    LangSmith["LangSmith Cloud<br/>traces & evals"]
-    Tavily["Tavily API<br/>(optional web search)"]
+    User["Demo user"]
+    LangSmith["LangSmith Cloud"]
+    Tavily["Tavily API · optional"]
   end
 
-  subgraph aws["AWS Account · us-east-1"]
-    CDK["CDK stack<br/>KubeRagLanggDemo"]
+  subgraph aws["AWS · us-east-1"]
+    CDK["CDK · KubeRagLanggDemo"]
 
-    subgraph vpc["VPC · 3 AZs"]
+    subgraph vpc["VPC"]
       NAT["NAT Gateway"]
-      ALB["ALB · HTTPS :443<br/>Cognito auth @ edge"]
+      ALB["ALB HTTPS :443<br/>Cognito @ edge"]
 
-      subgraph eks["Amazon EKS · kube-rag-langg · K8s 1.32"]
-        subgraph ns_showcase["namespace: showcase"]
-          UI["Showcase UI<br/>React + FastAPI :8000"]
-          NP1["NetworkPolicy<br/>egress → agents, ingestion"]
+      subgraph eks["EKS kube-rag-langg · K8s 1.35 · STANDARD upgrade policy"]
+        subgraph showcase["namespace: showcase"]
+          UI["Showcase UI<br/>React + FastAPI"]
         end
-
-        subgraph ns_agents["namespace: agents"]
-          Agents["LangGraph Server<br/>research-agents"]
-          NP2["NetworkPolicy<br/>ingress ← showcase"]
+        subgraph agents_ns["namespace: agents"]
+          Agents["LangGraph<br/>research-agents"]
         end
-
-        subgraph ns_rag["namespace: rag"]
-          Ingest["Ingestion API<br/>SSRF guard · rate limits"]
-          Qdrant["Qdrant<br/>EBS 20Gi"]
-          Redis["Redis<br/>(in-cluster)"]
-          NP3["NetworkPolicy<br/>ingress ← showcase, agents"]
+        subgraph rag_ns["namespace: rag"]
+          Ingest["Ingestion API<br/>SWAG · CRAG · expansion"]
+          Qdrant["Qdrant · EBS 20Gi"]
+          Redis["Redis in-cluster"]
         end
-
-        subgraph ns_system["kube-system add-ons"]
-          ALBC["AWS Load Balancer Controller"]
-          EBS["EBS CSI Driver"]
-          CA["Cluster Autoscaler"]
-        end
-
-        Node["EC2 node group<br/>t3.large · general"]
+        Node["t3.large node group"]
       end
 
-      S3["S3 bucket<br/>raw documents · encrypted"]
-      ECR["ECR repos<br/>agents · ingestion · ui"]
-      SM["Secrets Manager"]
-      Cognito["Cognito User Pool<br/>admin-created users"]
-      Budget["AWS Budget<br/>Bedrock spend alerts"]
-      IAM["IRSA · model-scoped<br/>LLM vs embedding"]
-      Bedrock["Amazon Bedrock<br/>Claude + Titan Embeddings"]
+      S3["S3 documents"]
+      ECR["ECR images"]
+      Cognito["Cognito"]
+      Bedrock["Bedrock<br/>Sonnet · Haiku · Titan"]
     end
   end
 
   User -->|HTTPS| ALB
-  ALB -->|authenticate-cognito| Cognito
-  Cognito --> ALB
+  ALB --> Cognito
   ALB --> UI
-  UI -->|SSE / REST| Agents
-  UI -->|upload max 100MB| Ingest
-  Agents -->|SWAG+CRAG via ingestion| Ingest
-  Ingest -->|RAG query| Qdrant
-  Agents -->|InvokeModel LLM only| Bedrock
-  Agents -.->|LANGSMITH_API_KEY| LangSmith
-  Agents -.->|optional| Tavily
-  Ingest -->|chunk · embed · SWAG profile · upsert| Qdrant
-  Ingest -->|SWAG rerank + CRAG grade| Bedrock
-  Ingest -->|read/write| S3
+  UI --> Agents
+  UI --> Ingest
+  Agents --> Ingest
+  Ingest --> Qdrant
+  Ingest --> S3
+  Ingest --> Bedrock
+  Agents --> Bedrock
+  Agents -.-> LangSmith
+  Agents -.-> Tavily
   CDK --> vpc
   CDK --> S3
   CDK --> ECR
-  CDK --> SM
   CDK --> Cognito
-  CDK --> Budget
-  CDK --> IAM
-  IAM --> Agents
-  IAM --> Ingest
-  ECR -.->|pull images| Node
-  Node --> UI
-  Node --> Agents
-  Node --> Ingest
-  Node --> Qdrant
-  ALBC --> ALB
-  EBS --> Qdrant
-  NAT --> Bedrock
-  NAT --> LangSmith
-  NP1 -.-> UI
-  NP2 -.-> Agents
-  NP3 -.-> Ingest
 ```
 
-**Fallback:** If ACM certificate is not yet **ISSUED**, `apply-showcase-access.sh` uses a public HTTP LoadBalancer until DNS validation completes.
+**Live demo URL (example):** `https://langrag.automatico.llc` — DNS CNAME → ALB hostname.
 
 ---
 
-## 2. Retrieval pipeline (SWAG + CRAG)
+## 2. RAG is a pattern; this is our flavor
 
-Single Qdrant index — **no separate SWAG vector store**. Each chunk stores Titan vectors plus `swag_profile` metadata in the same payload.  
-At ingest: vectors and profiles written in one pass (`SWAG_PROFILE_MODE=heuristic` by default — no Bedrock). At search: missing profiles enriched before rerank.  
-Shared path for ingestion `/rag/search`, UI Search tab, and agent `rag_search` (default mode: `swag_crag`).
+RAG (retrieval-augmented generation) is an **architecture pattern**, not a single library. This project implements **one concrete flavor**:
+
+| Layer | This project |
+|-------|----------------|
+| Vector store | Qdrant (single index) |
+| Embeddings | Bedrock Titan Embed v2 |
+| Chunk metadata | `document_id`, `chunk_index`, `chunk_kind`, `swag_profile` |
+| Retrieval modes | `baseline` · `swag` · `crag` · `swag_crag` |
+| SWAG | Heuristic profiles + rerank (default, $0) or LLM profiles |
+| CRAG | Haiku relevance grader + query rewrite fallback |
+| Post-retrieval | Same-document sibling expansion, vector confidence floor |
+| Agents | LangGraph research team with `rag_search` tool |
+
+Portable SWAG core also lives in the standalone repo **`/Users/mike/SWAG`** (FAISS/Qdrant, local or cloud). Kube embeds an adapted copy under `ingestion/src/ingestion/swag/` today.
+
+---
+
+## 3. Search pipeline (`POST /rag/search`)
+
+Single Qdrant collection (`research_docs`). No separate SWAG vector index.
+
+```mermaid
+flowchart TB
+  Q[User query] --> B[Baseline retrieve · top_k]
+  B --> CF{Vector confidence floor<br/>RAG_MIN_VECTOR_SCORE=0.12}
+  CF -->|blocked · non-CRAG modes| Z[0 hits + confidence message]
+  CF -->|pass or CRAG mode| M{mode}
+
+  M -->|baseline| BL[Return baseline hits]
+  M -->|swag| SW[Candidate pool · rerank]
+  M -->|crag| CR[Retrieve · Haiku grade]
+  M -->|swag_crag| SC[SWAG pool → CRAG grade]
+
+  SW --> SE[Same-document sibling expansion]
+  CR --> SE
+  SC --> SE
+  BL --> SE
+
+  SE --> OUT[Response hits + swag/crag/expansion meta]
+```
+
+### SWAG rerank (inside `swag` mode / before CRAG in `swag_crag`)
 
 ```mermaid
 flowchart LR
-  Q[Query] --> R[Vector retrieve · Qdrant]
-  R --> P[Ensure SWAG profiles<br/>heuristic or cached]
-  P --> S[SWAG rerank<br/>chunk kind · noise gate · dedup]
-  S --> G[CRAG · Haiku grader]
-  G -->|relevant| F[Return filtered chunks]
-  G -->|ambiguous| RW[Rewrite query · re-retrieve]
-  RW --> R
-  G -->|irrelevant| W[Tavily web fallback · agents]
-  W --> F
+  C[Vector candidates · ~20] --> P[Ensure SWAG profiles<br/>heuristic or cached]
+  P --> D[Dedupe · chunk-kind weights]
+  D --> R[Blend vector + SWAG + metadata]
+  R --> N[Noise gate + diversity cap]
+  N --> K[top_k hits]
 ```
 
-**Modes** (UI Search tab): `baseline` · `swag` · `crag` · `swag_crag` (default). Optional baseline comparison side-by-side.
+### Same-document sibling expansion
 
-**Key ConfigMap defaults** (`k8s/base/configmap.yaml`):
+When ≥1 chunk from a document passes filtering, pull **sibling chunks** from the same `document_id` in the candidate pool (reading order, no extra LLM). Kept chunk stays rank #1.
 
-| Setting | Default | Notes |
-|---------|---------|-------|
-| `SWAG_PROFILE_MODE` | `heuristic` | Set `llm` for Bedrock chunk/query profiles |
-| `CRAG_GRADER_MODEL` | Haiku 3 | Cheap relevance grading |
-| `SWAG_MAX_CHUNKS_PER_SOURCE` | `3` | Diversity cap per document |
-| `SWAG_NOISE_RELATIVE_VECTOR_RATIO` | `0.65` | Drop weak SWAG hits |
-| `SWAG_NOISE_BACKFILL_RATIO` | `0.58` | Second-pass fill to reach `top_k` |
+| Config | Default |
+|--------|---------|
+| `RAG_EXPAND_SAME_DOCUMENT` | `true` |
+| `RAG_SAME_DOCUMENT_MAX_PER_DOC` | `12` |
 
-**Regression eval:** `./scripts/benchmark-query-battery.sh` scores 10 queries against `query_eval_cases.json` (80% pass threshold).
+### Vector confidence floor
+
+If top vector score &lt; `RAG_MIN_VECTOR_SCORE` (0.12), return **0 hits** for baseline/SWAG modes — blocks off-corpus queries like “what is a shoe”. CRAG modes can still proceed to `web_fallback`.
+
+### UI compare / lift (`compare: true`)
+
+Search tab can request baseline side-by-side plus **lift metrics** (% improvement of SWAG, CRAG, SWAG→CRAG vs baseline on rank quality signals).
 
 ---
 
-## 3. Research request flow
+## 4. Research request flow
 
 ```mermaid
 sequenceDiagram
   actor User
-  participant ALB as ALB + Cognito
-  participant UI as Showcase UI<br/>(FastAPI)
-  participant LG as LangGraph<br/>research-agents
-  participant Ing as Ingestion API
-  participant Q as Qdrant
-  participant BR as Amazon Bedrock
-  participant LS as LangSmith Cloud
-
-  User->>ALB: HTTPS request
-  ALB->>User: Cognito login (if needed)
-  User->>ALB: Authenticated session
-  ALB->>UI: Forward to showcase-ui
-  User->>UI: Enter research topic
-  UI->>LG: POST /runs (SSE stream)
-  LG->>Ing: POST /rag/search (swag_crag)
-  Ing->>Q: Vector retrieve candidates
-  Q-->>Ing: Chunks + SWAG metadata
-  Ing->>Ing: Heuristic SWAG rerank
-  Ing->>BR: Haiku CRAG grade
-  BR-->>Ing: Graded chunks
-  Ing-->>LG: Filtered hits or web_fallback
-  LG->>BR: Claude Sonnet 4.6 synthesis
-  BR-->>LG: LLM response
-  Note over LG: plan HITL → researchers → critique HITL → synthesizer → report HITL
-  LG-->>UI: SSE interrupts + report
-  UI-->>User: Live progress + editable report
-  LG-->>LS: Traces (API key)
-```
-
----
-
-## 4. Document ingestion flow
-
-```mermaid
-sequenceDiagram
-  actor User
-  participant ALB as ALB + Cognito
   participant UI as Showcase UI
-  participant Ing as Ingestion API
-  participant S3 as S3 bucket
-  participant BR as Amazon Bedrock
+  participant LG as LangGraph agents
+  participant Ing as Ingestion
   participant Q as Qdrant
+  participant BR as Bedrock
 
-  User->>ALB: HTTPS (authenticated)
-  ALB->>UI: Forward
-  User->>UI: Upload PDF / text (≤100 MB)
-  UI->>UI: Rate limit check
-  UI->>Ing: POST /ingest/file
-  Ing->>S3: Store raw file
-  Ing->>Ing: Chunk document
-  Ing->>BR: Titan Embeddings
-  BR-->>Ing: Vectors
-  Ing->>Ing: Heuristic SWAG profiles + chunk kind
-  Ing->>Q: Upsert vectors + SWAG payload
-  Ing-->>UI: Job complete
-  UI-->>User: Ready for RAG queries
+  User->>UI: Research topic
+  UI->>LG: SSE stream
+  loop Researchers
+    LG->>Ing: POST /rag/search swag_crag
+    Ing->>Q: Vector candidates
+    Ing->>Ing: SWAG rerank + sibling expansion
+    Ing->>BR: Haiku CRAG grade
+    BR-->>Ing: Graded chunks
+    Ing-->>LG: Hits or web_fallback
+  end
+  LG->>BR: Sonnet synthesis
+  BR-->>LG: Report draft
+  LG-->>UI: HITL checkpoints plan · critique · report
+  UI-->>User: Live progress + editable report
 ```
 
-**URL ingest** (`POST /ingest/url`) is cluster-internal only (agents tool); SSRF checks block private IPs and metadata endpoints.
-
-**Demo seed (no upload):** `./scripts/seed-demo-corpus.sh` → topic `rag-demo`, collection `research_docs`.
+**HITL:** plan → researchers → critique → synthesizer (60–90s) → report.
 
 ---
 
-## 5. What CDK provisions vs what scripts deploy
-
-| Layer | Script | Resources |
-|-------|--------|-----------|
-| **Infrastructure** | `infra-deploy.sh` | VPC, EKS, S3, ECR, IRSA (model-scoped), Cognito, ACM cert, Bedrock budget, Secrets Manager |
-| **Cluster add-ons** | `bootstrap.sh` | EBS CSI, ALB controller (+ IRSA), External Secrets, Cluster Autoscaler, StorageClass |
-| **Applications** | `deploy.sh` | Qdrant, Redis, Ingestion, research-agents, Showcase UI, NetworkPolicies, ALB ingress or LB |
-
-### Security-conscious demo defaults
-
-| Included | Not included |
-|----------|----------------|
-| Cognito @ ALB (HTTPS) | WAF, IP allowlists |
-| Model-scoped Bedrock IRSA | VPC endpoints for Bedrock/S3 |
-| Upload cap + API rate limits | Formal pen test / SOC2 |
-| SSRF block on URL ingest | Per-user data isolation |
-| NetworkPolicies (UI → backends) | Private-only EKS API |
-| Bedrock budget email alerts | — |
-
----
-
-## 6. Network layout
+## 5. Ingestion flow
 
 ```mermaid
-flowchart LR
-  subgraph public["Public subnets"]
-    ALB2["ALB HTTPS :443<br/>Cognito authenticate"]
-    NAT2["NAT Gateway"]
-  end
+sequenceDiagram
+  participant UI as Showcase UI
+  participant Ing as Ingestion
+  participant S3 as S3
+  participant BR as Bedrock Titan
+  participant Q as Qdrant
 
-  subgraph private["Private subnets"]
-    EKS2["EKS worker nodes<br/>all app pods"]
-  end
-
-  Internet["Internet"] --> ALB2
-  ALB2 --> EKS2
-  EKS2 --> NAT2
-  NAT2 --> Internet
+  UI->>Ing: Upload or URL ingest
+  Ing->>S3: Raw object
+  Ing->>Ing: Chunk · classify kind · document_id
+  Ing->>BR: Embed batch
+  Ing->>Ing: SWAG profile heuristic default
+  Ing->>Q: Upsert vector + payload
 ```
 
-- **Ingress:** ALB with TLS + Cognito (`langrag.automatico.llc` or your `appDomainName`)
-- **Egress:** NAT gateway for Bedrock, LangSmith, optional Tavily
-- **Pod traffic:** NetworkPolicies restrict showcase → agents/ingestion; qdrant/redis ingress from app pods only
+**Demo corpus:** `./scripts/seed-demo-corpus.sh` → 5 public URLs, ~112 chunks, topic `rag-demo`. Cost: &lt;$0.001 Bedrock (embed only).
+
+---
+
+## 6. CDK vs scripts
+
+| Layer | Script | Delivers |
+|-------|--------|----------|
+| Infra | `infra-deploy.sh` | VPC, EKS 1.35, S3, ECR, IRSA, Cognito, ACM, budget |
+| Cluster | `bootstrap.sh` | EBS CSI + IRSA, ALB controller, autoscaler, **STANDARD** EKS upgrade policy |
+| Apps | `deploy.sh` | Qdrant, Redis, ingestion, agents, UI |
 
 ---
 
 ## 7. IAM (IRSA)
 
-```mermaid
-flowchart LR
-  subgraph pods["Kubernetes pods"]
-    A["research-agents SA"]
-    I["ingestion SA"]
-    ALB_SA["aws-load-balancer-controller SA"]
-  end
-
-  subgraph roles["IAM roles"]
-    R1["Agents IRSA role"]
-    R2["Ingestion IRSA role"]
-    R3["ALB controller role"]
-  end
-
-  subgraph perms["Permissions"]
-    P1["bedrock:InvokeModel*<br/>Claude model only"]
-    P2["bedrock:InvokeModel<br/>Titan embed + Haiku CRAG grader<br/>(+ optional SWAG llm mode)"]
-    P3["s3:GetObject · PutObject"]
-    P4["elasticloadbalancing:*"]
-  end
-
-  A --> R1 --> P1
-  A --> R1 --> P3
-  I --> R2 --> P2
-  I --> R2 --> P3
-  ALB_SA --> R3 --> P4
-```
+| Pod | Bedrock scope | S3 |
+|-----|---------------|-----|
+| `research-agents` | Claude Sonnet 4.6 | read/write documents |
+| `ingestion` | Titan embed + Haiku CRAG (+ optional SWAG LLM) | read/write documents |
 
 ---
 
-## 8. Demo lifecycle
+## 8. Demo lifecycle & cost
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Parked: initial / demo-park.sh
-  Parked --> Running: infra-deploy + bootstrap + deploy
+  [*] --> Parked: demo-park.sh
+  Parked --> Running: infra + bootstrap + deploy
   Running --> Stopped: demo-stop.sh
   Stopped --> Running: demo-start.sh
   Running --> Parked: demo-park.sh
-  Stopped --> Parked: demo-park.sh
 
-  note right of Parked
-    ~$0–1/mo
-    S3 + ECR only
-  end note
-
-  note right of Stopped
-    ~$105/mo
-    EKS + NAT, no nodes/LB/ALB
-  end note
-
-  note right of Running
-    ~$185–205/mo if 24/7
-    ALB vs NLB ~+$0–20
-    + Bedrock per use
-  end note
+  note right of Parked: ~$0–1/mo S3+ECR
+  note right of Stopped: ~$105/mo EKS+NAT
+  note right of Running: ~$185/mo 24/7 + Bedrock per use
 ```
 
-`demo-stop.sh` removes ALB ingress or LoadBalancer; Cognito pool and budget persist until `demo-park.sh`.
+See [DEMO_COSTS.md](./DEMO_COSTS.md) — avoid EKS **extended support** (~$360/mo extra); cluster uses `upgradePolicy: STANDARD`.
+
+---
+
+## 9. Validation & regression
+
+| Script | Cost | Checks |
+|--------|------|--------|
+| `./scripts/validate-project.sh` | $0 | pytest + offline SWAG integrity |
+| `./scripts/validate-project.sh --live-smoke` | ~1 Titan embed | Health + baseline search |
+| `./scripts/benchmark-query-battery.sh` | ~20 embeds | 10-query eval sheet, 80% pass |
 
 ---
 
 ## Related docs
 
-- [BUILD_AND_USAGE.md](./BUILD_AND_USAGE.md) — deploy and operate
-- [SECURITY.md](./SECURITY.md) — auth, guardrails, out of scope
-- [COGNITO.md](./COGNITO.md) — Cognito + ACM setup
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — design decisions
-- [DEMO_COSTS.md](./DEMO_COSTS.md) — cost by mode
+| Doc | Purpose |
+|-----|---------|
+| [BUILD_AND_USAGE.md](./BUILD_AND_USAGE.md) | Step-by-step deploy and usage |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Design decisions |
+| [DEMO_COSTS.md](./DEMO_COSTS.md) | Billing by mode |
+| [SECURITY.md](./SECURITY.md) | Auth and guardrails |

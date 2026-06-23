@@ -92,7 +92,8 @@ kubectl annotate serviceaccount "${SA_NAME}" -n "${SA_NAMESPACE}" \
 if kubectl get deployment aws-load-balancer-controller -n "${SA_NAMESPACE}" &>/dev/null; then
   echo "==> Restarting AWS Load Balancer Controller..."
   kubectl rollout restart deployment aws-load-balancer-controller -n "${SA_NAMESPACE}"
-  kubectl rollout status deployment aws-load-balancer-controller -n "${SA_NAMESPACE}" --timeout=120s
+  kubectl rollout status deployment aws-load-balancer-controller -n "${SA_NAMESPACE}" --timeout=180s \
+    || echo "WARN: ALB controller rollout not ready yet — IRSA annotation applied."
 fi
 
 echo "==> ALB controller IRSA ready."

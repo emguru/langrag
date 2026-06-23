@@ -9,24 +9,20 @@ echo "==> Bootstrapping EKS cluster add-ons for ${CLUSTER_NAME}..."
 
 aws eks update-kubeconfig --region "${AWS_REGION}" --name "${CLUSTER_NAME}"
 
-echo "==> Installing EBS CSI driver addon..."
-if ! aws eks describe-addon \
-  --cluster-name "${CLUSTER_NAME}" \
-  --addon-name aws-ebs-csi-driver \
-  --region "${AWS_REGION}" &>/dev/null; then
-  aws eks create-addon \
-    --cluster-name "${CLUSTER_NAME}" \
-    --addon-name aws-ebs-csi-driver \
-    --resolve-conflicts OVERWRITE \
-    --region "${AWS_REGION}"
-fi
-aws eks wait addon-active \
-  --cluster-name "${CLUSTER_NAME}" \
-  --addon-name aws-ebs-csi-driver \
+echo "==> Setting EKS upgrade policy to STANDARD (avoid extended-support charges)..."
+upgrade_out="$(aws eks update-cluster-config \
   --region "${AWS_REGION}" \
-  --max-attempts 30 2>/dev/null || echo "WARN: EBS CSI addon not active yet - continuing"
+  --name "${CLUSTER_NAME}" \
+  --upgrade-policy supportType=STANDARD 2>&1)" || {
+  if echo "${upgrade_out}" | grep -q "No changes needed"; then
+    echo "    Upgrade policy already STANDARD."
+  else
+    echo "${upgrade_out}" >&2
+    exit 1
+  fi
+}
 
-echo "==> Configuring EBS CSI driver IRSA..."
+echo "==> Ensuring EBS CSI driver addon with IRSA..."
 "${ROOT}/scripts/setup-ebs-csi-irsa.sh"
 
 if ! command -v helm &>/dev/null; then
@@ -36,9 +32,17 @@ else
   helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
   helm repo update
 
+  VPC_ID="$(aws eks describe-cluster \
+    --name "${CLUSTER_NAME}" \
+    --region "${AWS_REGION}" \
+    --query 'cluster.resourcesVpcConfig.vpcId' \
+    --output text)"
+
   helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
     -n kube-system \
     --set clusterName="${CLUSTER_NAME}" \
+    --set region="${AWS_REGION}" \
+    --set vpcId="${VPC_ID}" \
     --set serviceAccount.create=true \
     --set serviceAccount.name=aws-load-balancer-controller \
     --wait || echo "WARN: ALB controller install failed - ensure IAM policy is attached"

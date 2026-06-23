@@ -37,6 +37,32 @@ type RankChange = {
   augmented_rank: number | null;
   rank_delta: number | null;
 };
+type LiftMetric = { label: string; value_pct: number };
+type PipelineLift = {
+  pipeline: string;
+  rank_improved_pct: number;
+  top1_score_lift_pct: number;
+  top1_quality_fix_pct: number;
+  noise_filtered_pct: number;
+  relevant_kept_pct?: number | null;
+  mean_swag_top3_pct?: number | null;
+  positive_metrics: LiftMetric[];
+  has_positive_lift: boolean;
+  baseline_count: number;
+  augmented_count: number;
+};
+type SearchLift = {
+  baseline_top_k: number;
+  swag: PipelineLift;
+  crag: PipelineLift;
+  swag_crag: PipelineLift;
+};
+type SearchConfidence = {
+  low_confidence: boolean;
+  top_vector_score: number;
+  min_vector_score: number;
+  message: string;
+};
 type DocumentRow = {
   source: string;
   topic?: string;
@@ -92,6 +118,33 @@ function renderHitScores(hit: RagHit, mode: SearchMode): string {
   }
   if (hit.relevance) parts.push(hit.relevance);
   return parts.join(" · ");
+}
+
+function formatLiftPct(value: number): string {
+  return `+${value.toFixed(value % 1 === 0 ? 0 : 1)}%`;
+}
+
+function LiftCard({ title, lift }: { title: string; lift: PipelineLift }) {
+  return (
+    <div className={`lift-card ${lift.has_positive_lift ? "lift-positive" : "lift-neutral"}`}>
+      <h4>{title}</h4>
+      {lift.has_positive_lift ? (
+        <ul className="lift-metrics">
+          {lift.positive_metrics.map((metric) => (
+            <li key={metric.label}>
+              <span className="lift-value">{formatLiftPct(metric.value_pct)}</span>
+              <span className="lift-label">{metric.label}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="hint lift-none">No measurable lift over baseline on this query.</p>
+      )}
+      <small className="lift-footnote">
+        {lift.baseline_count} baseline → {lift.augmented_count} results
+      </small>
+    </div>
+  );
 }
 
 function asText(value: unknown): string {
@@ -192,6 +245,8 @@ export default function App() {
     augmented_count: number;
     rank_changes: RankChange[];
   } | null>(null);
+  const [searchLift, setSearchLift] = useState<SearchLift | null>(null);
+  const [searchConfidence, setSearchConfidence] = useState<SearchConfidence | null>(null);
   const [searchBusy, setSearchBusy] = useState(false);
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [stats, setStats] = useState<{ total_points: number; document_count: number; topics: string[] } | null>(null);
@@ -313,6 +368,8 @@ export default function App() {
     setSearchBaseline([]);
     setSearchCrag(null);
     setSearchComparison(null);
+    setSearchLift(null);
+    setSearchConfidence(null);
     const resp = await fetch("/api/rag/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -333,6 +390,8 @@ export default function App() {
     setSearchBaseline(data.baseline_hits || []);
     setSearchCrag(data.crag || null);
     setSearchComparison(data.comparison || null);
+    setSearchLift(data.lift || null);
+    setSearchConfidence(data.confidence || null);
   }
 
   async function loadChunks(source: string) {
@@ -856,7 +915,9 @@ export default function App() {
             <h2>Search indexed documents</h2>
             <p className="hint">
               Upload indexes chunks once (vectors + semantic metadata). Each search runs the
-              selected pipeline automatically — SWAG reranks before CRAG when both are enabled.
+              selected pipeline automatically. Enable compare to see SWAG vs CRAG lift over
+              baseline vector search — SWAG is free at ingest (heuristic profiles); CRAG adds
+              a Haiku call per graded chunk.
             </p>
             <input
               value={searchQuery}
@@ -893,6 +954,32 @@ export default function App() {
           </section>
           <section className="card full-width">
             <h2>Results</h2>
+            {searchConfidence?.low_confidence && (
+              <div className="confidence-banner">
+                <strong>Low corpus confidence</strong>
+                <p>{searchConfidence.message}</p>
+                <small>
+                  Top vector score {searchConfidence.top_vector_score.toFixed(3)} is below the
+                  floor ({searchConfidence.min_vector_score}). Use{" "}
+                  <strong>Vector → CRAG</strong> if you need web fallback.
+                </small>
+              </div>
+            )}
+            {compareBaseline && searchLift && (
+              <div className="lift-panel">
+                <h3>Lift vs baseline vector search</h3>
+                <p className="hint">
+                  Positive percentages only — measured on top-{searchLift.baseline_top_k} results.
+                  SWAG reranks without LLM cost (heuristic mode). CRAG filters via Haiku grading;
+                  on this demo corpus SWAG often beats CRAG on rank quality at lower cost.
+                </p>
+                <div className="lift-grid">
+                  <LiftCard title="SWAG" lift={searchLift.swag} />
+                  <LiftCard title="CRAG" lift={searchLift.crag} />
+                  <LiftCard title="SWAG → CRAG" lift={searchLift.swag_crag} />
+                </div>
+              </div>
+            )}
             <p className="hint pipeline-status">
               <strong>Pipeline:</strong> {PIPELINE_STEPS[searchMode]}
               {(searchMode === "crag" || searchMode === "swag_crag") &&
@@ -908,7 +995,7 @@ export default function App() {
                 </>
               )}
             </p>
-            {searchResults.length === 0 && !searchBusy && (
+            {searchResults.length === 0 && !searchBusy && !searchConfidence?.low_confidence && (
               <p className="hint">No results yet.</p>
             )}
             {searchResults.map((h, i) => (

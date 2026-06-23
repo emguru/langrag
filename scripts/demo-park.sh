@@ -21,8 +21,11 @@ done
 echo "==> Parking demo (CDK destroy)..."
 echo "    Removes EKS, VPC, NAT. S3 + ECR retained by default."
 echo ""
-read -r -p "Continue? [y/N] " confirm
-[[ "${DEMO_PARK_CONFIRM:-}" == "yes" ]] && confirm="y"
+if [[ "${DEMO_PARK_CONFIRM:-}" != "yes" ]]; then
+  read -r -p "Continue? [y/N] " confirm
+else
+  confirm="y"
+fi
 confirm_lc="$(printf '%s' "$confirm" | tr '[:upper:]' '[:lower:]')"
 [[ "$confirm_lc" != "y" && "$confirm_lc" != "yes" ]] && { echo "Aborted."; exit 0; }
 
