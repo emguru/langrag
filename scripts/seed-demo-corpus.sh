@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Seed research_docs with public URLs so you can test RAG/SWAG/CRAG without owning PDFs.
 # Set SWAG_PROFILE_MODE=heuristic on ingestion (ConfigMap) so ingest skips Bedrock profiling.
+#
+# RECREATE=1 wipes the collection (destructive). Default append mode keeps existing chunks
+# and adds new URLs — use this when growing a diverse corpus in Pass 2+.
 set -euo pipefail
 
 TOPIC="${TOPIC:-rag-demo}"

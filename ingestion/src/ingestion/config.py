@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     rag_same_document_max_per_doc: int = 12
     # Drop title/nav/boilerplate from search hits; keeps body chunks only when possible.
     rag_filter_non_body_hits: bool = True
+    # Compare baseline uses same expand+prune stack as augmented hits (honest eval).
+    rag_compare_symmetric_baseline: bool = True
     max_upload_bytes: int = 100 * 1024 * 1024
     max_fetch_bytes: int = 100 * 1024 * 1024
     rate_limit_ingest_per_min: int = 30

@@ -53,10 +53,16 @@ type PipelineLift = {
 };
 type SearchLift = {
   baseline_top_k: number;
-  swag: PipelineLift;
-  crag: PipelineLift;
-  swag_crag: PipelineLift;
+  baseline_compare?: string;
+  active_mode?: SearchMode;
+  swag_rerank?: PipelineLift;
+  swag_full?: PipelineLift;
+  swag?: PipelineLift;
+  crag?: PipelineLift;
+  swag_crag?: PipelineLift;
 };
+
+type LiftCardSpec = { title: string; lift: PipelineLift };
 type SearchConfidence = {
   low_confidence: boolean;
   top_vector_score: number;
@@ -122,6 +128,76 @@ function renderHitScores(hit: RagHit, mode: SearchMode): string {
 
 function formatLiftPct(value: number): string {
   return `+${value.toFixed(value % 1 === 0 ? 0 : 1)}%`;
+}
+
+function normalizeSearchLift(raw: unknown, topK: number): SearchLift | null {
+  if (!raw || typeof raw !== "object") return null;
+  const lift = raw as Record<string, unknown>;
+  const swagRerank = lift.swag_rerank as PipelineLift | undefined;
+  const swagLegacy = lift.swag as PipelineLift | undefined;
+  const swagFull = lift.swag_full as PipelineLift | undefined;
+  const crag = lift.crag as PipelineLift | undefined;
+  const swagCrag = lift.swag_crag as PipelineLift | undefined;
+  if (!swagRerank && !swagLegacy && !swagFull && !crag && !swagCrag) return null;
+  const typed = raw as SearchLift;
+  return {
+    baseline_top_k: Number(typed.baseline_top_k) || topK,
+    baseline_compare: typed.baseline_compare,
+    active_mode: typed.active_mode,
+    swag_rerank: swagRerank,
+    swag_full: swagFull,
+    swag: swagLegacy || swagRerank,
+    crag,
+    swag_crag: swagCrag,
+  };
+}
+
+function liftCardsForMode(mode: SearchMode, lift: SearchLift): LiftCardSpec[] {
+  const cards: LiftCardSpec[] = [];
+  const add = (title: string, pipeline?: PipelineLift) => {
+    if (pipeline) cards.push({ title, lift: pipeline });
+  };
+
+  switch (mode) {
+    case "swag":
+      add("SWAG rerank", lift.swag_rerank);
+      add("SWAG full stack", lift.swag_full);
+      break;
+    case "crag":
+      add("CRAG", lift.crag);
+      break;
+    case "swag_crag":
+      add("SWAG rerank", lift.swag_rerank);
+      add("SWAG full stack", lift.swag_full);
+      add("SWAG → CRAG", lift.swag_crag);
+      break;
+    default:
+      break;
+  }
+  return cards;
+}
+
+function liftPanelHint(mode: SearchMode, topK: number): string {
+  switch (mode) {
+    case "swag":
+      return (
+        `SWAG rerank compares raw vector top-${topK} vs semantic rerank only. ` +
+        `SWAG full stack compares symmetric baseline (same expand + body prune) ` +
+        `vs rerank plus the retrieval stack.`
+      );
+    case "crag":
+      return (
+        `CRAG compares raw vector top-${topK} vs Haiku-graded chunks kept for RAG ` +
+        `(irrelevant hits dropped; web fallback when none pass).`
+      );
+    case "swag_crag":
+      return (
+        `Metrics for the active pipeline only. SWAG → CRAG is the final step; ` +
+        `earlier cards show what reranking adds before CRAG filtering.`
+      );
+    default:
+      return "";
+  }
 }
 
 function LiftCard({ title, lift }: { title: string; lift: PipelineLift }) {
@@ -235,6 +311,7 @@ export default function App() {
   const [ragHits, setRagHits] = useState<RagHit[]>([]);
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchTopic, setSearchTopic] = useState("");
   const [searchMode, setSearchMode] = useState<SearchMode>("swag_crag");
   const [compareBaseline, setCompareBaseline] = useState(true);
   const [searchResults, setSearchResults] = useState<RagHit[]>([]);
@@ -307,7 +384,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (tab === "library") loadLibrary();
+    if (tab === "library" || tab === "search") loadLibrary();
   }, [tab, loadLibrary]);
 
   useEffect(() => {
@@ -379,6 +456,7 @@ export default function App() {
         top_k: 8,
         mode: searchMode,
         compare: compareBaseline,
+        ...(searchTopic ? { topic: searchTopic } : {}),
       }),
     });
     const data = await resp.json();
@@ -390,7 +468,7 @@ export default function App() {
     setSearchBaseline(data.baseline_hits || []);
     setSearchCrag(data.crag || null);
     setSearchComparison(data.comparison || null);
-    setSearchLift(data.lift || null);
+    setSearchLift(normalizeSearchLift(data.lift, 8));
     setSearchConfidence(data.confidence || null);
   }
 
@@ -587,6 +665,8 @@ export default function App() {
     }
     return null;
   }
+
+  const compareLiftCards = searchLift ? liftCardsForMode(searchMode, searchLift) : [];
 
   return (
     <div className="app">
@@ -915,16 +995,33 @@ export default function App() {
             <h2>Search indexed documents</h2>
             <p className="hint">
               Upload indexes chunks once (vectors + semantic metadata). Each search runs the
-              selected pipeline automatically. Enable compare to see SWAG vs CRAG lift over
-              baseline vector search — SWAG is free at ingest (heuristic profiles); CRAG adds
-              a Haiku call per graded chunk.
+              selected pipeline automatically. Enable compare for side-by-side baseline ranking
+              and lift metrics for the <strong>active pipeline only</strong> (no CRAG cards when
+              running Vector → SWAG).
             </p>
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Query your indexed documents..."
+              placeholder="e.g. How do we automate invoice processing and PO approval?"
               onKeyDown={(e) => e.key === "Enter" && runSearch()}
             />
+            <label htmlFor="search-topic-filter">Topic filter (optional)</label>
+            <select
+              id="search-topic-filter"
+              value={searchTopic}
+              onChange={(e) => setSearchTopic(e.target.value)}
+            >
+              <option value="">All topics (mixed corpus)</option>
+              {(stats?.topics || []).map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <p className="hint">
+              Cross-domain queries (invoice / cafeteria) work better with a topic lane — try{" "}
+              <strong>ap-procurement</strong> for PO questions.
+            </p>
             <fieldset className="mode-selector">
               <legend>Retrieval pipeline</legend>
               {(Object.keys(SEARCH_MODE_LABELS) as SearchMode[]).map((mode) => (
@@ -965,18 +1062,14 @@ export default function App() {
                 </small>
               </div>
             )}
-            {compareBaseline && searchLift && (
+            {compareBaseline && compareLiftCards.length > 0 && (
               <div className="lift-panel">
                 <h3>Lift vs baseline vector search</h3>
-                <p className="hint">
-                  Positive percentages only — measured on top-{searchLift.baseline_top_k} results.
-                  SWAG reranks without LLM cost (heuristic mode). CRAG filters via Haiku grading;
-                  on this demo corpus SWAG often beats CRAG on rank quality at lower cost.
-                </p>
+                <p className="hint">{liftPanelHint(searchMode, searchLift!.baseline_top_k)}</p>
                 <div className="lift-grid">
-                  <LiftCard title="SWAG" lift={searchLift.swag} />
-                  <LiftCard title="CRAG" lift={searchLift.crag} />
-                  <LiftCard title="SWAG → CRAG" lift={searchLift.swag_crag} />
+                  {compareLiftCards.map((card) => (
+                    <LiftCard key={card.title} title={card.title} lift={card.lift} />
+                  ))}
                 </div>
               </div>
             )}
@@ -996,7 +1089,18 @@ export default function App() {
               )}
             </p>
             {searchResults.length === 0 && !searchBusy && !searchConfidence?.low_confidence && (
-              <p className="hint">No results yet.</p>
+              <p className="hint">
+                No results yet.
+                {(searchMode === "crag" || searchMode === "swag_crag") &&
+                  searchCrag?.action === "web_fallback" &&
+                  Number(searchCrag.kept ?? 0) === 0 && (
+                    <>
+                      {" "}
+                      CRAG found no relevant chunks in
+                      {searchTopic ? ` topic “${searchTopic}”` : " this collection"}.
+                    </>
+                  )}
+              </p>
             )}
             {searchResults.map((h, i) => (
               <div key={`${h.id || h.source}-${i}`} className="hit">
@@ -1004,6 +1108,7 @@ export default function App() {
                 <div>{h.text}</div>
                 <small>
                   {h.source} {h.page ? `· p.${h.page}` : ""}
+                  {h.topic ? ` · topic: ${h.topic}` : ""}
                 </small>
               </div>
             ))}

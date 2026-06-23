@@ -113,6 +113,40 @@ def expand_same_document_siblings(
     }
 
 
+def backfill_body_from_pool(
+    hits: list[dict],
+    pool: list[dict],
+    *,
+    top_k: int | None = None,
+) -> tuple[list[dict], dict]:
+    """When body-only pruning leaves fewer than top_k, add body chunks from the pool."""
+    limit = top_k or settings.rag_top_k
+    if len(hits) >= limit or not pool:
+        return hits[:limit], {"backfilled": 0, "enabled": False}
+
+    seen = {_hit_key(hit) for hit in hits}
+    candidates = [
+        hit
+        for hit in pool
+        if _chunk_kind(hit) == "body" and _hit_key(hit) not in seen
+    ]
+    candidates.sort(key=lambda hit: float(hit.get("score") or 0.0), reverse=True)
+
+    result = list(hits)
+    added = 0
+    for hit in candidates:
+        if len(result) >= limit:
+            break
+        enriched = dict(hit)
+        enriched["chunk_kind"] = _chunk_kind(hit)
+        enriched["backfilled_body"] = True
+        result.append(enriched)
+        seen.add(_hit_key(hit))
+        added += 1
+
+    return result, {"enabled": added > 0, "backfilled": added}
+
+
 def prune_low_value_hits(hits: list[dict], *, top_k: int | None = None) -> tuple[list[dict], dict]:
     """Drop title/nav/boilerplate chunks from search results; prefer substantive body."""
     if not settings.rag_filter_non_body_hits or not hits:

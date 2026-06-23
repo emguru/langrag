@@ -7,7 +7,11 @@ from ingestion.confidence import apply_vector_confidence_floor
 from ingestion.crag import grade_chunks, rewrite_query, search_with_crag
 from ingestion.lift_metrics import compute_lift_metrics
 from ingestion.rag_store import search_documents
-from ingestion.same_document_expansion import expand_same_document_siblings, prune_low_value_hits
+from ingestion.same_document_expansion import (
+    backfill_body_from_pool,
+    expand_same_document_siblings,
+    prune_low_value_hits,
+)
 from ingestion.swag.rerank import compute_rank_changes, rerank_hits_with_swag
 
 AugmentationMode = Literal["baseline", "swag", "crag", "swag_crag"]
@@ -109,6 +113,87 @@ def _candidate_pool_size(top_k: int) -> int:
     )
 
 
+def _needs_wide_pool() -> bool:
+    return (
+        settings.rag_expand_same_document
+        or settings.rag_filter_non_body_hits
+        or settings.swag_enabled
+    )
+
+
+def _fetch_candidate_pool(
+    query: str,
+    *,
+    collection: str,
+    top_k: int,
+    topic: str | None,
+) -> list[dict]:
+    return search_documents(
+        query,
+        collection=collection,
+        top_k=_candidate_pool_size(top_k),
+        topic=topic,
+    )
+
+
+def _finalize_retrieval_hits(
+    hits: list[dict],
+    candidate_pool: list[dict],
+    *,
+    top_k: int,
+    allow_pool_backfill: bool = True,
+) -> tuple[list[dict], dict]:
+    """Same-document expansion + body prune; optional pool backfill to reach top_k."""
+    expanded, expansion_meta = expand_same_document_siblings(
+        hits, candidate_pool, top_k=top_k
+    )
+    pruned, prune_meta = prune_low_value_hits(expanded, top_k=top_k)
+    if prune_meta.get("filtered"):
+        expansion_meta = {**(expansion_meta or {}), "prune": prune_meta}
+    if allow_pool_backfill:
+        backfilled, backfill_meta = backfill_body_from_pool(
+            pruned, candidate_pool, top_k=top_k
+        )
+        if backfill_meta.get("backfilled"):
+            expansion_meta = {**(expansion_meta or {}), "backfill": backfill_meta}
+        return backfilled, expansion_meta
+    expansion_meta = {
+        **(expansion_meta or {}),
+        "backfill": {"enabled": False, "backfilled": 0, "skipped": "crag_kept_hits"},
+    }
+    return pruned[:top_k], expansion_meta
+
+
+def _symmetric_baseline_hits(
+    raw_baseline: list[dict],
+    candidate_pool: list[dict],
+    *,
+    top_k: int,
+) -> list[dict]:
+    """Baseline vector hits after the same expand+prune stack as augmented results."""
+    if not settings.rag_compare_symmetric_baseline:
+        return raw_baseline
+    if not settings.rag_expand_same_document and not settings.rag_filter_non_body_hits:
+        return raw_baseline
+    finalized, _ = _finalize_retrieval_hits(raw_baseline, candidate_pool, top_k=top_k)
+    return finalized
+
+
+def _crag_cleared_all_hits(crag_meta: dict | None) -> bool:
+    """CRAG returned no chunks — do not refill from the vector candidate pool."""
+    if not crag_meta or crag_meta.get("enabled") is False:
+        return False
+    kept = int(crag_meta.get("kept") or 0)
+    return kept == 0 and str(crag_meta.get("action") or "") == "web_fallback"
+
+
+def _crag_kept_hits(crag_meta: dict | None) -> bool:
+    """CRAG kept at least one chunk — allow sibling expand only, no cross-doc pool backfill."""
+    if not crag_meta or crag_meta.get("enabled") is False:
+        return False
+    return int(crag_meta.get("kept") or 0) > 0
+
+
 def _confidence_blocked_response(
     query: str,
     *,
@@ -129,15 +214,19 @@ def _confidence_blocked_response(
     }
     if compare:
         response["baseline_hits"] = []
+        response["baseline_hits_raw"] = []
         response["comparison"] = {
             "baseline_count": 0,
             "augmented_count": 0,
             "rank_changes": [],
         }
-        empty = compute_lift_metrics([], [], top_k=limit, pipeline="swag")
+        empty = compute_lift_metrics([], [], top_k=limit, pipeline="swag_rerank")
         response["lift"] = {
             "baseline_top_k": limit,
-            "swag": {**empty, "pipeline": "swag"},
+            "baseline_compare": "symmetric_stack",
+            "swag_rerank": {**empty, "pipeline": "swag_rerank"},
+            "swag_full": {**empty, "pipeline": "swag_full"},
+            "swag": {**empty, "pipeline": "swag_rerank"},
             "crag": {**empty, "pipeline": "crag"},
             "swag_crag": {**empty, "pipeline": "swag_crag"},
         }
@@ -175,47 +264,33 @@ def search_with_augmentation(
             confidence=confidence,
         )
 
+    raw_baseline_hits = baseline_hits
+    candidate_pool = (
+        _fetch_candidate_pool(query, collection=collection, top_k=limit, topic=topic)
+        if _needs_wide_pool()
+        else baseline_hits
+    )
+
     swag_meta: dict | None = None
     crag_meta: dict | None = None
     expansion_meta: dict | None = None
     hits: list[dict]
-    candidate_pool = baseline_hits
 
     if mode == "baseline":
-        if settings.rag_expand_same_document:
-            candidate_pool = search_documents(
-                query,
-                collection=collection,
-                top_k=_candidate_pool_size(limit),
-                topic=topic,
-            )
-        hits = baseline_hits
+        hits = raw_baseline_hits
     elif mode == "swag":
         if not settings.swag_enabled:
-            hits = baseline_hits
+            hits = raw_baseline_hits
             swag_meta = {"enabled": False, "reason": "SWAG disabled in config"}
         else:
-            candidate_pool = search_documents(
-                query,
-                collection=collection,
-                top_k=_candidate_pool_size(limit),
-                topic=topic,
-            )
             hits, swag_meta = rerank_hits_with_swag(
                 query, candidate_pool, collection=collection, top_k=limit
             )
     elif mode == "crag":
         if not settings.crag_enabled:
-            hits = baseline_hits
+            hits = raw_baseline_hits
             crag_meta = {"enabled": False, "reason": "CRAG disabled in config"}
         else:
-            if settings.rag_expand_same_document:
-                candidate_pool = search_documents(
-                    query,
-                    collection=collection,
-                    top_k=_candidate_pool_size(limit),
-                    topic=topic,
-                )
             result = search_with_crag(
                 query,
                 collection=collection,
@@ -228,14 +303,8 @@ def search_with_augmentation(
         swag_meta = {"enabled": settings.swag_enabled}
         crag_meta = {"enabled": settings.crag_enabled}
         if not settings.swag_enabled and not settings.crag_enabled:
-            hits = baseline_hits
+            hits = raw_baseline_hits
         elif settings.swag_enabled:
-            candidate_pool = search_documents(
-                query,
-                collection=collection,
-                top_k=_candidate_pool_size(limit),
-                topic=topic,
-            )
             swag_hits, swag_meta = rerank_hits_with_swag(
                 query, candidate_pool, collection=collection, top_k=limit
             )
@@ -251,13 +320,6 @@ def search_with_augmentation(
             else:
                 hits = swag_hits
         else:
-            if settings.rag_expand_same_document:
-                candidate_pool = search_documents(
-                    query,
-                    collection=collection,
-                    top_k=_candidate_pool_size(limit),
-                    topic=topic,
-                )
             result = search_with_crag(
                 query,
                 collection=collection,
@@ -267,14 +329,21 @@ def search_with_augmentation(
             hits = result["hits"]
             crag_meta = result.get("crag")
     else:
-        hits = baseline_hits
+        hits = raw_baseline_hits
 
-    hits, expansion_meta = expand_same_document_siblings(
-        hits, candidate_pool, top_k=limit
-    )
-    hits, prune_meta = prune_low_value_hits(hits, top_k=limit)
-    if prune_meta.get("filtered"):
-        expansion_meta = {**(expansion_meta or {}), "prune": prune_meta}
+    if _crag_cleared_all_hits(crag_meta):
+        expansion_meta = {
+            "enabled": False,
+            "skipped": "crag_web_fallback",
+            "reason": "CRAG dropped all chunks; not backfilling from vector pool",
+        }
+    else:
+        hits, expansion_meta = _finalize_retrieval_hits(
+            hits,
+            candidate_pool,
+            top_k=limit,
+            allow_pool_backfill=not _crag_kept_hits(crag_meta),
+        )
 
     response: dict = {
         "query": query,
@@ -287,76 +356,135 @@ def search_with_augmentation(
     }
 
     if compare:
-        response["baseline_hits"] = baseline_hits
+        symmetric_baseline = _symmetric_baseline_hits(
+            raw_baseline_hits, candidate_pool, top_k=limit
+        )
+        response["baseline_hits_raw"] = raw_baseline_hits
+        response["baseline_hits"] = symmetric_baseline
         response["comparison"] = {
-            "baseline_count": len(baseline_hits),
+            "baseline_count": len(symmetric_baseline),
+            "baseline_raw_count": len(raw_baseline_hits),
             "augmented_count": len(hits),
-            "rank_changes": compute_rank_changes(baseline_hits, hits),
+            "rank_changes": compute_rank_changes(raw_baseline_hits, hits),
+            "rank_changes_symmetric": compute_rank_changes(symmetric_baseline, hits),
         }
 
-        swag_hits_lift = baseline_hits
-        swag_meta_lift: dict | None = {"enabled": False, "reason": "SWAG disabled in config"}
-        if settings.swag_enabled:
-            swag_candidates = search_documents(
-                query,
-                collection=collection,
-                top_k=_candidate_pool_size(limit),
-                topic=topic,
-            )
-            swag_hits_lift, swag_meta_lift = rerank_hits_with_swag(
-                query,
-                swag_candidates,
-                collection=collection,
-                top_k=limit,
-            )
+        # Only compute lift (and CRAG grading) for pipelines in the active search mode.
+        # The eval sheet still requests mode=swag + compare for swag_rerank/swag_full only.
+        need_swag_lift = mode in ("swag", "swag_crag")
+        need_crag_lift = mode == "crag"
+        need_swag_crag_lift = mode == "swag_crag"
 
-        crag_hits_lift = baseline_hits
-        crag_meta_lift: dict | None = {"enabled": False, "reason": "CRAG disabled in config"}
-        if settings.crag_enabled:
-            crag_result = search_with_crag(
-                query,
-                collection=collection,
-                top_k=limit,
-                topic=topic,
-            )
-            crag_hits_lift = crag_result["hits"]
-            crag_meta_lift = crag_result.get("crag")
-
-        swag_crag_hits_lift, swag_crag_meta_lift = _apply_crag_to_hits(
-            query,
-            swag_hits_lift,
-            collection=collection,
-            top_k=limit,
-            topic=topic,
-            swag_on_retry=True,
+        compare_mode = (
+            "symmetric_stack"
+            if settings.rag_compare_symmetric_baseline
+            else "raw_vector"
         )
-        if not settings.crag_enabled:
-            swag_crag_hits_lift = swag_hits_lift
-            swag_crag_meta_lift = {"enabled": False, "reason": "CRAG disabled in config"}
-
-        response["lift"] = {
+        lift_payload: dict = {
             "baseline_top_k": limit,
-            "swag": compute_lift_metrics(
-                baseline_hits,
-                swag_hits_lift,
-                top_k=limit,
-                pipeline="swag",
-                extra=swag_meta_lift,
-            ),
-            "crag": compute_lift_metrics(
-                baseline_hits,
+            "baseline_compare": compare_mode,
+            "active_mode": mode,
+        }
+
+        if need_swag_lift or need_swag_crag_lift:
+            swag_rerank_hits = raw_baseline_hits
+            swag_meta_lift: dict | None = {
+                "enabled": False,
+                "reason": "SWAG disabled in config",
+            }
+            if settings.swag_enabled:
+                swag_rerank_hits, swag_meta_lift = rerank_hits_with_swag(
+                    query,
+                    candidate_pool,
+                    collection=collection,
+                    top_k=limit,
+                )
+            swag_full_hits, _ = _finalize_retrieval_hits(
+                swag_rerank_hits, candidate_pool, top_k=limit
+            )
+            if need_swag_lift or need_swag_crag_lift:
+                swag_rerank_lift = compute_lift_metrics(
+                    raw_baseline_hits,
+                    swag_rerank_hits,
+                    top_k=limit,
+                    pipeline="swag_rerank",
+                    extra=swag_meta_lift,
+                )
+                swag_full_lift = compute_lift_metrics(
+                    symmetric_baseline,
+                    swag_full_hits,
+                    top_k=limit,
+                    pipeline="swag_full",
+                    extra=swag_meta_lift,
+                )
+                lift_payload["swag_rerank"] = swag_rerank_lift
+                lift_payload["swag_full"] = swag_full_lift
+                lift_payload["swag"] = swag_rerank_lift
+
+            if need_swag_crag_lift:
+                swag_crag_hits_lift, swag_crag_meta_lift = _apply_crag_to_hits(
+                    query,
+                    swag_rerank_hits,
+                    collection=collection,
+                    top_k=limit,
+                    topic=topic,
+                    swag_on_retry=True,
+                )
+                if not settings.crag_enabled:
+                    swag_crag_hits_lift = swag_full_hits
+                    swag_crag_meta_lift = {
+                        "enabled": False,
+                        "reason": "CRAG disabled in config",
+                    }
+                elif _crag_cleared_all_hits(swag_crag_meta_lift):
+                    swag_crag_hits_lift = []
+                else:
+                    swag_crag_hits_lift, _ = _finalize_retrieval_hits(
+                        swag_crag_hits_lift,
+                        candidate_pool,
+                        top_k=limit,
+                        allow_pool_backfill=not _crag_kept_hits(swag_crag_meta_lift),
+                    )
+                lift_payload["swag_crag"] = compute_lift_metrics(
+                    symmetric_baseline,
+                    swag_crag_hits_lift,
+                    top_k=limit,
+                    pipeline="swag_crag",
+                    extra=swag_crag_meta_lift,
+                )
+
+        if need_crag_lift:
+            crag_hits_lift = raw_baseline_hits
+            crag_meta_lift: dict | None = {
+                "enabled": False,
+                "reason": "CRAG disabled in config",
+            }
+            if settings.crag_enabled:
+                crag_result = search_with_crag(
+                    query,
+                    collection=collection,
+                    top_k=limit,
+                    topic=topic,
+                )
+                crag_hits_lift = crag_result["hits"]
+                crag_meta_lift = crag_result.get("crag")
+                if _crag_cleared_all_hits(crag_meta_lift):
+                    crag_hits_lift = []
+                elif crag_hits_lift:
+                    crag_hits_lift, _ = _finalize_retrieval_hits(
+                        crag_hits_lift,
+                        candidate_pool,
+                        top_k=limit,
+                        allow_pool_backfill=not _crag_kept_hits(crag_meta_lift),
+                    )
+            lift_payload["crag"] = compute_lift_metrics(
+                raw_baseline_hits,
                 crag_hits_lift,
                 top_k=limit,
                 pipeline="crag",
                 extra=crag_meta_lift,
-            ),
-            "swag_crag": compute_lift_metrics(
-                baseline_hits,
-                swag_crag_hits_lift,
-                top_k=limit,
-                pipeline="swag_crag",
-                extra=swag_crag_meta_lift,
-            ),
-        }
+            )
+
+        response["lift"] = lift_payload
 
     return response

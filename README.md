@@ -37,7 +37,8 @@ cp .env.example .env                          # LANGSMITH_API_KEY
 Open the UI URL printed at the end.
 
 ```bash
-./scripts/seed-demo-corpus.sh           # optional demo docs (topic: rag-demo)
+./scripts/seed-demo-corpus.sh           # optional RAG lesson corpus (topic: rag-demo)
+./scripts/seed-corpus-batch.sh        # diverse multi-topic corpus (append-only)
 ./scripts/validate-project.sh         # offline regression (~$0)
 ./scripts/benchmark-query-battery.sh  # live SWAG eval after seed
 ```
@@ -64,6 +65,7 @@ scripts/
   deploy.sh            Build images + apply K8s manifests
   validate-project.sh  Offline go/no-go + optional live smoke
   seed-demo-corpus.sh  Load public RAG docs into research_docs
+  seed-corpus-batch.sh  Batch-seed diverse topics from corpus-batch.manifest
   benchmark-query-battery.sh  SWAG retrieval regression (10 queries)
   demo-stop.sh         Scale to zero
   demo-start.sh        Resume demo

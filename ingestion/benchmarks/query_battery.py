@@ -46,9 +46,19 @@ def run_battery(ingestion_url: str, collection: str, top_k: int) -> dict:
             ).json()
             hits = data.get("hits") or []
             if mode == "baseline":
-                baseline_hits = list(data.get("baseline_hits") or hits)
+                baseline_hits = list(
+                    data.get("baseline_hits_raw")
+                    or data.get("baseline_hits")
+                    or hits
+                )
             else:
                 swag_hits = hits
+                if not baseline_hits:
+                    baseline_hits = list(
+                        data.get("baseline_hits_raw")
+                        or data.get("baseline_hits")
+                        or []
+                    )
             base = data.get("baseline_hits") or []
             swag = data.get("swag") or {}
             rc = [
@@ -56,6 +66,7 @@ def run_battery(ingestion_url: str, collection: str, top_k: int) -> dict:
                 for c in (data.get("comparison") or {}).get("rank_changes", [])
                 if c.get("rank_delta") not in (None, 0)
             ]
+            lift = data.get("lift") or {}
             sources = set()
             for h in hits:
                 src = str(h.get("source") or "")
@@ -71,6 +82,12 @@ def run_battery(ingestion_url: str, collection: str, top_k: int) -> dict:
                 "diversity_skipped": swag.get("diversity_skipped"),
                 "top_swag": round(hits[0].get("swag_score") or 0, 4)
                 if hits and mode == "swag"
+                else None,
+                "lift_rerank": (lift.get("swag_rerank") or {}).get("has_positive_lift")
+                if mode == "swag"
+                else None,
+                "lift_full": (lift.get("swag_full") or {}).get("has_positive_lift")
+                if mode == "swag"
                 else None,
             }
         row["swag_moved"] = row["modes"]["swag"]["rank_changes"] > 0

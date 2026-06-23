@@ -79,6 +79,7 @@ class RagSearchResponse(BaseModel):
     swag: dict | None = None
     crag: dict | None = None
     baseline_hits: list[dict] | None = None
+    baseline_hits_raw: list[dict] | None = None
     comparison: dict | None = None
     lift: dict | None = None
     confidence: dict | None = None
@@ -256,6 +257,7 @@ def rag_search(request: Request, body: RagSearchRequest):
         swag=result.get("swag"),
         crag=result.get("crag"),
         baseline_hits=result.get("baseline_hits"),
+        baseline_hits_raw=result.get("baseline_hits_raw"),
         comparison=result.get("comparison"),
         lift=result.get("lift"),
         confidence=result.get("confidence"),

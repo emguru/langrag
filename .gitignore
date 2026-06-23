@@ -29,3 +29,4 @@ cdk/bin/*.d.ts
 .demo-ingress.yaml
 .demo-access-mode
 .demo-deploy/
+scripts/.seed-corpus-batch.state

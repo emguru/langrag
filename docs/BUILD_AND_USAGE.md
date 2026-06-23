@@ -129,6 +129,17 @@ RECREATE=1 ./scripts/seed-demo-corpus.sh
 
 → **112 chunks**, topic `rag-demo`, 5 public RAG URLs. Embed cost &lt; $0.001.
 
+**Diverse multi-topic corpus** (append-only, misfiled-doc simulation):
+
+```bash
+./scripts/seed-corpus-batch.sh              # all topics in corpus-batch.manifest
+TOPICS=ap-procurement,cafeteria-ops ./scripts/seed-corpus-batch.sh
+DRY_RUN=1 ./scripts/seed-corpus-batch.sh    # plan + cost estimate
+RECREATE=0 ./scripts/seed-corpus-batch.sh   # default: append without wiping collection
+```
+
+Six topics: `rag-foundations`, `software-engineering`, `ap-procurement`, `cafeteria-ops`, `platform-ops`, `security-compliance`.
+
 ### 8. Verify
 
 ```bash
@@ -153,6 +164,7 @@ RECREATE=1 ./scripts/seed-demo-corpus.sh
 | `RAG_MIN_VECTOR_SCORE` | `0.12` | Off-corpus confidence floor |
 | `RAG_EXPAND_SAME_DOCUMENT` | `true` | Sibling chunk expansion |
 | `RAG_SAME_DOCUMENT_MAX_PER_DOC` | `12` | Per-document expansion cap |
+| `RAG_COMPARE_SYMMETRIC_BASELINE` | `true` | Apply expand + body prune to baseline in compare mode |
 
 Full list: `.env.example` and `k8s/base/configmap.yaml`.
 
@@ -165,7 +177,7 @@ Full list: `.env.example` and `k8s/base/configmap.yaml`.
 | `crag` | + Haiku relevance grading, rewrite fallback |
 | `swag_crag` | SWAG pool → CRAG (default for agents & UI) |
 
-Set `compare: true` for baseline side-by-side + **lift** metrics (Search tab).
+Set `compare: true` for baseline side-by-side + **mode-scoped lift** cards (Search tab). Optional `topic` filters Qdrant by metadata before retrieve.
 
 ---
 
@@ -181,7 +193,7 @@ Set `compare: true` for baseline side-by-side + **lift** metrics (Search tab).
 | Tab | Purpose |
 |-----|---------|
 | **Research** | LangGraph HITL workflow (plan → research → critique → report) |
-| **Search** | Try RAG modes, see lift cards, confidence banner |
+| **Search** | RAG modes, topic filter, mode-scoped lift cards, confidence banner |
 | **Ingest** | Upload PDF/txt/md (≤100 MB) |
 | **Library** | Documents in `research_docs` |
 
@@ -203,10 +215,15 @@ Set `compare: true` for baseline side-by-side + **lift** metrics (Search tab).
 3. **SWAG** — heuristic profiles, chunk-kind weights, noise gate
 4. **CRAG** — Haiku grades `relevant` / `ambiguous` / `irrelevant`
 5. **Sibling expansion** — if one chunk from a doc wins, add same-doc siblings from pool in reading order
+6. **CRAG finalize** — when CRAG keeps hits, no cross-doc pool backfill (siblings + body prune only); when CRAG clears all hits, return empty (no backfill)
 
-### Example (live)
+### Examples (live)
 
 Query *“how does rag work”* in `swag_crag` → 3 chunks from same LangChain README (`document_id` shared), body chunk first, title + diagram as siblings.
+
+Cross-domain corpus — *“how do we automate rag”*, topic **All**, `swag_crag` → CRAG `partial_rag` keeps **1/3**; lift **8→1** hits; top doc `rag-foundations` (LangChain RAG README). Same query with topic `ap-procurement` returns procurement-only candidates.
+
+Invoice/PO noise — *“three-way matching purchase order”* on **All** topics may return cafeteria + AP chunks; filter topic `ap-procurement` for domain-scoped hits.
 
 ### API (port-forward)
 
@@ -225,7 +242,7 @@ curl -s -X POST http://localhost:8001/rag/search \
 | `swag` / `crag` | Pipeline metadata |
 | `expansion` | Sibling expansion stats |
 | `confidence` | Low-confidence block info |
-| `lift` | Compare-mode improvement metrics |
+| `lift` | Compare-mode improvement (`swag_rerank`, `swag_full`, `swag_crag` — scoped to active mode) |
 | `baseline_hits` | Raw vector top-k when `compare: true` |
 
 ---

@@ -140,7 +140,25 @@ If top vector score &lt; `RAG_MIN_VECTOR_SCORE` (0.12), return **0 hits** for ba
 
 ### UI compare / lift (`compare: true`)
 
-Search tab can request baseline side-by-side plus **lift metrics** (% improvement of SWAG, CRAG, SWAG→CRAG vs baseline on rank quality signals).
+Search tab can request baseline side-by-side plus **mode-scoped lift cards** — only metrics for the active pipeline (e.g. SWAG→CRAG shows `swag_rerank`, `swag_full`, and `swag_crag`, not unrelated CRAG-only lift).
+
+With `RAG_COMPARE_SYMMETRIC_BASELINE=true` (default), baseline for lift is **symmetric**: same sibling expansion and body-only prune applied to vector-only hits so rerank credit is not confounded with post-filters.
+
+Split lift keys:
+
+| Key | Measures |
+|-----|----------|
+| `swag_rerank` | Vector top-K → after SWAG rerank only |
+| `swag_full` | Symmetric baseline → final SWAG path hits |
+| `swag_crag` | Symmetric baseline → after CRAG grade (SWAG→CRAG mode) |
+
+**Topic filter:** optional `topic` on `POST /rag/search` and Search tab dropdown — Qdrant metadata filter before retrieve; use to isolate domains (e.g. `ap-procurement`) in mixed corpora.
+
+### CRAG post-grade finalize
+
+When CRAG keeps hits (`partial_rag` / `relevant`), **cross-document pool backfill is disabled** — only same-document sibling expansion and body prune run. Prevents CRAG from discarding noise and the stack immediately refilling from the vector pool.
+
+When CRAG clears all hits (`web_fallback`, kept=0), finalize is skipped so empty results stay empty.
 
 ---
 
@@ -193,7 +211,14 @@ sequenceDiagram
   Ing->>Q: Upsert vector + payload
 ```
 
-**Demo corpus:** `./scripts/seed-demo-corpus.sh` → 5 public URLs, ~112 chunks, topic `rag-demo`. Cost: &lt;$0.001 Bedrock (embed only).
+**Demo corpora:**
+
+| Script | Corpus | Cost |
+|--------|--------|------|
+| `./scripts/seed-demo-corpus.sh` | 5 RAG lesson URLs → topic `rag-demo` (~112 chunks) | &lt;$0.001 embed |
+| `./scripts/seed-corpus-batch.sh` | 23 URLs, 6 topics (`corpus-batch.manifest`) append-only | Titan embed only (heuristic SWAG) |
+
+Mixed topics in one collection simulate misfiled / cross-domain folders; combine with Search **topic filter** for domain-scoped pulls.
 
 ---
 

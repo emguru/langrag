@@ -1,0 +1,40 @@
+# Diverse public corpus for kube_rag_langg (append-only batch seed).
+# Format: topic|url   (comments and blank lines ignored)
+#
+# Ingest cost: Titan embed only when SWAG_PROFILE_MODE=heuristic (default).
+# Extend this file or pass MANIFEST=path/to/custom.manifest
+
+# --- RAG / retrieval foundations ---
+rag-foundations|https://raw.githubusercontent.com/langchain-ai/rag-from-scratch/main/README.md
+rag-foundations|https://docs.aws.amazon.com/prescriptive-guidance/latest/patterns/generative-ai-rag.html
+rag-foundations|https://raw.githubusercontent.com/microsoft/generative-ai-for-beginners/main/08-building-search-applications/README.md
+rag-foundations|https://raw.githubusercontent.com/microsoft/generative-ai-for-beginners/main/04-prompt-engineering-fundamentals/README.md
+rag-foundations|https://raw.githubusercontent.com/run-llama/llama_index/main/README.md
+
+# --- Software engineering (mixed with ops docs in real folders) ---
+software-engineering|https://raw.githubusercontent.com/python/cpython/main/README.rst
+software-engineering|https://raw.githubusercontent.com/golang/go/master/README.md
+software-engineering|https://raw.githubusercontent.com/rust-lang/rust/master/README.md
+software-engineering|https://raw.githubusercontent.com/microsoft/TypeScript/main/README.md
+
+# --- Accounts payable / procurement (PO-style enterprise content) ---
+ap-procurement|https://docs.aws.amazon.com/prescriptive-guidance/latest/patterns/automating-procurement-and-contract-management.html
+ap-procurement|https://docs.aws.amazon.com/prescriptive-guidance/latest/patterns/invoice-processing-automation.html
+ap-procurement|https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/billing-concepts.html
+ap-procurement|https://raw.githubusercontent.com/GSA/data/master/README.md
+
+# --- Cafeteria / food operations (domain noise vs procurement) ---
+cafeteria-ops|https://docs.aws.amazon.com/prescriptive-guidance/latest/patterns/build-a-food-ordering-system.html
+cafeteria-ops|https://raw.githubusercontent.com/FDA/openfda/master/README.md
+cafeteria-ops|https://docs.aws.amazon.com/prescriptive-guidance/latest/patterns/serverless-restaurant-management.html
+
+# --- Platform / Kubernetes operations ---
+platform-ops|https://raw.githubusercontent.com/kubernetes/website/main/content/en/docs/concepts/overview/_index.md
+platform-ops|https://raw.githubusercontent.com/hashicorp/terraform/main/README.md
+platform-ops|https://raw.githubusercontent.com/helm/helm/main/README.md
+platform-ops|https://raw.githubusercontent.com/langchain-ai/langgraph/main/README.md
+
+# --- Security / compliance (cross-cutting policy docs) ---
+security-compliance|https://docs.aws.amazon.com/wellarchitected/latest/framework/security.html
+security-compliance|https://raw.githubusercontent.com/OWASP/CheatSheetSeries/master/README.md
+security-compliance|https://docs.aws.amazon.com/prescriptive-guidance/latest/patterns/implement-security-controls-for-generative-ai.html
