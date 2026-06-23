@@ -8,7 +8,7 @@ from ingestion.swag.postprocess import source_group_key
 from ingestion.swag.profile import profile_from_payload
 
 _KIND_RANK = {"body": 0, "title": 1, "nav": 2, "boilerplate": 3, "empty": 4}
-_EXPAND_SKIP_KINDS = frozenset({"empty", "boilerplate"})
+_EXPAND_SKIP_KINDS = frozenset({"empty", "boilerplate", "title", "nav"})
 
 
 def _hit_key(hit: dict) -> str:
@@ -48,7 +48,7 @@ def expand_same_document_siblings(
 
     max_per_doc = settings.rag_same_document_max_per_doc
     limit = top_k or settings.rag_top_k
-    max_total = max(limit, max_per_doc * max(1, len({source_group_key(h) for h in kept})))
+    max_total = limit
 
     docs_ordered: list[str] = []
     for hit in kept:
@@ -106,8 +106,30 @@ def expand_same_document_siblings(
             result.append(dict(hit))
             seen.add(key)
 
-    return result, {
+    return result[:max_total], {
         "enabled": True,
         "siblings_added": siblings_added,
         "documents_expanded": len(docs_ordered),
     }
+
+
+def prune_low_value_hits(hits: list[dict], *, top_k: int | None = None) -> tuple[list[dict], dict]:
+    """Drop title/nav/boilerplate chunks from search results; prefer substantive body."""
+    if not settings.rag_filter_non_body_hits or not hits:
+        return hits, {"filtered": 0, "enabled": False}
+
+    limit = top_k or settings.rag_top_k
+
+    def _kind(hit: dict) -> str:
+        return _chunk_kind(hit)
+
+    substantive = [h for h in hits if _kind(h) == "body"]
+    if substantive:
+        pruned = substantive[:limit]
+        return pruned, {
+            "enabled": True,
+            "filtered": len(hits) - len(pruned),
+            "kept_kind": "body",
+        }
+
+    return hits[:limit], {"enabled": True, "filtered": 0, "kept_kind": "fallback"}

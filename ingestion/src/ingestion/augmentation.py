@@ -7,7 +7,7 @@ from ingestion.confidence import apply_vector_confidence_floor
 from ingestion.crag import grade_chunks, rewrite_query, search_with_crag
 from ingestion.lift_metrics import compute_lift_metrics
 from ingestion.rag_store import search_documents
-from ingestion.same_document_expansion import expand_same_document_siblings
+from ingestion.same_document_expansion import expand_same_document_siblings, prune_low_value_hits
 from ingestion.swag.rerank import compute_rank_changes, rerank_hits_with_swag
 
 AugmentationMode = Literal["baseline", "swag", "crag", "swag_crag"]
@@ -272,6 +272,9 @@ def search_with_augmentation(
     hits, expansion_meta = expand_same_document_siblings(
         hits, candidate_pool, top_k=limit
     )
+    hits, prune_meta = prune_low_value_hits(hits, top_k=limit)
+    if prune_meta.get("filtered"):
+        expansion_meta = {**(expansion_meta or {}), "prune": prune_meta}
 
     response: dict = {
         "query": query,
