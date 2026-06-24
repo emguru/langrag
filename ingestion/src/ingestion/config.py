@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     rag_top_k: int = 8
     # Minimum top vector similarity to return hits (0 = disabled). Blocks off-corpus junk.
     rag_min_vector_score: float = 0.12
+    # Lower floor when a topic metadata filter narrows the corpus (scoped lane search).
+    rag_min_vector_score_topic: float = 0.08
     # When a chunk passes filtering, include same-document siblings from the retrieval pool.
     rag_expand_same_document: bool = True
     rag_same_document_max_per_doc: int = 12

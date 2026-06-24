@@ -15,13 +15,19 @@ def apply_vector_confidence_floor(
     hits: list[dict],
     *,
     threshold: float | None = None,
+    topic: str | None = None,
 ) -> tuple[list[dict], dict | None]:
     """
     Drop hits when the best vector score is below the corpus confidence floor.
     Returns ([], meta) when gated; (hits, None) when OK.
     Set threshold <= 0 to disable.
     """
-    floor = settings.rag_min_vector_score if threshold is None else threshold
+    if threshold is not None:
+        floor = threshold
+    elif topic:
+        floor = settings.rag_min_vector_score_topic
+    else:
+        floor = settings.rag_min_vector_score
     if floor <= 0 or not hits:
         return hits, None
 

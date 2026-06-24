@@ -66,11 +66,15 @@ Battery cases (after batch seed):
 | Case ID | Query | Mode | Topic |
 |---------|-------|------|-------|
 | `automate-rag-cross` | how do we automate rag | SWAG→CRAG | All |
-| `three-way-ap-scoped` | three-way matching purchase order | SWAG | ap-procurement |
+| `three-way-mixed` | three-way matching purchase order | SWAG | All |
+| `invoice-ap-topic` | invoice processing automation | SWAG | ap-procurement |
 | `invoice-cafeteria-noise` | invoice cafeteria menu | SWAG→CRAG | All |
-| `pancackes-typo` | pancackes | SWAG→CRAG | All (optional*) |
+| `pancakes-keyword` / `pancackes-typo` | pancakes / pancackes | SWAG→CRAG | All |
+| `off-corpus-shoe` | what is a shoe | SWAG | All |
+| `openai-playground` | what is an openai playground | SWAG | All |
+| `cafeteria-food-safety` | food safety basics… | SWAG | cafeteria-ops |
 
-\*Optional — skipped when no recipe doc in corpus; upload via Ingest tab to enable.
+Recipe typo cases require a user-uploaded recipe doc in corpus (upload via Ingest tab).
 
 ### Tier 3 — Your documents (proof on real content)
 
@@ -134,7 +138,8 @@ Edit `k8s/base/configmap.yaml` (rag namespace) — no LLM cost for SWAG rerank i
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `RAG_MIN_VECTOR_SCORE` | 0.12 | Off-corpus confidence floor |
+| `RAG_MIN_VECTOR_SCORE` | 0.12 | Off-corpus confidence floor (all topics) |
+| `RAG_MIN_VECTOR_SCORE_TOPIC` | 0.08 | Lower floor when topic filter narrows corpus |
 | `SWAG_CHUNK_TITLE_MULTIPLIER` | 0.40 | Title down-rank at rerank |
 | `SWAG_NOISE_RELATIVE_VECTOR_RATIO` | 0.65 | Noise gate strictness |
 | `SWAG_MAX_CHUNKS_PER_SOURCE` | 3 | Source diversity cap |

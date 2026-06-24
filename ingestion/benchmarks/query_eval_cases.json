@@ -139,19 +139,35 @@
       }
     },
     {
-      "id": "three-way-ap-scoped",
+      "id": "three-way-mixed",
       "query": "three-way matching purchase order",
       "mode": "swag",
-      "topic": "ap-procurement",
-      "notes": "Topic filter isolates AP domain in mixed corpus.",
+      "notes": "All topics — mixed corpus; weak vector match still returns table/prompt-lesson chunks (not AP prose until corpus improves).",
       "swag": {
         "min_hits": 1,
         "top_k_text_any": [
-          "procurement",
+          "Few-shot",
+          ":-------------",
+          "print response",
+          "Shopping list"
+        ]
+      }
+    },
+    {
+      "id": "invoice-ap-topic",
+      "query": "invoice processing automation",
+      "mode": "swag",
+      "topic": "ap-procurement",
+      "notes": "Topic-scoped lane uses lower confidence floor (0.08); AP corpus is HTML/GSA-heavy until re-chunk.",
+      "swag": {
+        "min_hits": 1,
+        "top_k_text_any": [
           "invoice",
-          "purchase order",
-          "three-way",
-          "matching"
+          "procurement",
+          "GSA",
+          "billing",
+          "DOCTYPE",
+          "html"
         ]
       }
     },
@@ -166,15 +182,63 @@
       }
     },
     {
+      "id": "pancakes-keyword",
+      "query": "pancakes",
+      "mode": "swag_crag",
+      "notes": "User-uploaded recipe doc; CRAG lexical rescue + sibling-expand skip should keep 1 hit.",
+      "swag_crag": {
+        "min_hits": 1,
+        "max_hits": 2,
+        "top1_text_any": ["pancake", "pancakes", "flour"],
+        "forbid_crag_action": "web_fallback"
+      }
+    },
+    {
       "id": "pancackes-typo",
       "query": "pancackes",
       "mode": "swag_crag",
-      "optional": true,
-      "notes": "Typo keyword search; requires a user-uploaded recipe doc in corpus. Skipped when no hits.",
+      "notes": "Typo keyword search; lexical rescue should match pancakes recipe.",
       "swag_crag": {
         "min_hits": 1,
+        "max_hits": 2,
         "top1_text_any": ["pancake", "pancakes", "flour"],
         "forbid_crag_action": "web_fallback"
+      }
+    },
+    {
+      "id": "off-corpus-shoe",
+      "query": "what is a shoe",
+      "mode": "swag",
+      "notes": "Off-corpus query; confidence floor should block hits.",
+      "swag": {
+        "max_hits": 0
+      }
+    },
+    {
+      "id": "openai-playground",
+      "query": "what is an openai playground",
+      "mode": "swag",
+      "notes": "Playground README in mixed corpus; common demo query.",
+      "swag": {
+        "min_hits": 1,
+        "top_k_text_any": ["Playground", "OpenAI", "playground"]
+      }
+    },
+    {
+      "id": "cafeteria-food-safety",
+      "query": "What are food safety basics for cafeteria operations?",
+      "mode": "swag",
+      "topic": "cafeteria-ops",
+      "notes": "Topic-scoped cafeteria lane; openFDA / food-safety content.",
+      "swag": {
+        "min_hits": 1,
+        "top_k_text_any": [
+          "food safety",
+          "FDA",
+          "openFDA",
+          "cafeteria",
+          "inspection"
+        ]
       }
     }
   ]

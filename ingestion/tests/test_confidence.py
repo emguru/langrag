@@ -24,5 +24,12 @@ def test_floor_disabled_when_zero():
     assert meta is None
 
 
+def test_floor_topic_scoped_lower_threshold():
+    hits = [{"score": 0.096, "text": "scoped AP hit"}]
+    gated, meta = apply_vector_confidence_floor(hits, topic="ap-procurement")
+    assert len(gated) == 1
+    assert meta is None
+
+
 def test_top_vector_score_empty():
     assert top_vector_score([]) == 0.0

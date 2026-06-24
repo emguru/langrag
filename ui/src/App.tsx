@@ -1020,8 +1020,9 @@ export default function App() {
             </select>
             <p className="hint">
               Cross-domain queries (invoice / cafeteria) work better with a topic lane — try{" "}
-              <strong>ap-procurement</strong> for PO questions.
-            </p>
+              <strong>ap-procurement</strong> for PO questions or{" "}
+              <strong>cafeteria-ops</strong> for food-service questions.
+              </p>
             <fieldset className="mode-selector">
               <legend>Retrieval pipeline</legend>
               {(Object.keys(SEARCH_MODE_LABELS) as SearchMode[]).map((mode) => (

@@ -19,6 +19,20 @@ def test_unrelated_query_does_not_match():
     )
 
 
+def test_stopword_have_does_not_rescue_recipe():
+    assert not lexical_query_matches_chunk(
+        "what do we have in the cafeteria",
+        "Produce a shopping list considering what we already have at home.",
+    )
+
+
+def test_cafeteria_token_required_for_cafeteria_query():
+    assert lexical_query_matches_chunk(
+        "what do we have in the cafeteria",
+        "Serverless restaurant management for cafeteria operations.",
+    )
+
+
 def test_rescue_upgrades_irrelevant_only_when_all_cleared():
     graded = [
         {

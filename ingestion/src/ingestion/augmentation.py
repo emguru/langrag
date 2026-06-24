@@ -142,11 +142,21 @@ def _finalize_retrieval_hits(
     *,
     top_k: int,
     allow_pool_backfill: bool = True,
+    allow_sibling_expand: bool = True,
 ) -> tuple[list[dict], dict]:
     """Same-document expansion + body prune; optional pool backfill to reach top_k."""
-    expanded, expansion_meta = expand_same_document_siblings(
-        hits, candidate_pool, top_k=top_k
-    )
+    if allow_sibling_expand:
+        expanded, expansion_meta = expand_same_document_siblings(
+            hits, candidate_pool, top_k=top_k
+        )
+    else:
+        expanded = hits[:top_k]
+        expansion_meta = {
+            "enabled": False,
+            "skipped": "sibling_expand_disabled",
+            "siblings_added": 0,
+            "reason": "CRAG kept no relevant hits; avoid same-doc flood",
+        }
     pruned, prune_meta = prune_low_value_hits(expanded, top_k=top_k)
     if prune_meta.get("filtered"):
         expansion_meta = {**(expansion_meta or {}), "prune": prune_meta}
@@ -192,6 +202,13 @@ def _crag_kept_hits(crag_meta: dict | None) -> bool:
     if not crag_meta or crag_meta.get("enabled") is False:
         return False
     return int(crag_meta.get("kept") or 0) > 0
+
+
+def _crag_skip_sibling_expand(crag_meta: dict | None) -> bool:
+    """When CRAG kept only ambiguous hits, same-doc siblings often re-add noise."""
+    if not _crag_kept_hits(crag_meta):
+        return False
+    return int(crag_meta.get("relevant") or 0) == 0
 
 
 def _confidence_blocked_response(
@@ -252,7 +269,7 @@ def search_with_augmentation(
         topic=topic,
     )
 
-    _, confidence = apply_vector_confidence_floor(baseline_hits)
+    _, confidence = apply_vector_confidence_floor(baseline_hits, topic=topic)
     crag_can_fallback = mode in ("crag", "swag_crag") and settings.crag_enabled
     if confidence and not crag_can_fallback:
         return _confidence_blocked_response(
@@ -343,6 +360,7 @@ def search_with_augmentation(
             candidate_pool,
             top_k=limit,
             allow_pool_backfill=not _crag_kept_hits(crag_meta),
+            allow_sibling_expand=not _crag_skip_sibling_expand(crag_meta),
         )
 
     response: dict = {
@@ -444,6 +462,9 @@ def search_with_augmentation(
                         candidate_pool,
                         top_k=limit,
                         allow_pool_backfill=not _crag_kept_hits(swag_crag_meta_lift),
+                        allow_sibling_expand=not _crag_skip_sibling_expand(
+                            swag_crag_meta_lift
+                        ),
                     )
                 lift_payload["swag_crag"] = compute_lift_metrics(
                     symmetric_baseline,
@@ -476,6 +497,9 @@ def search_with_augmentation(
                         candidate_pool,
                         top_k=limit,
                         allow_pool_backfill=not _crag_kept_hits(crag_meta_lift),
+                        allow_sibling_expand=not _crag_skip_sibling_expand(
+                            crag_meta_lift
+                        ),
                     )
             lift_payload["crag"] = compute_lift_metrics(
                 raw_baseline_hits,

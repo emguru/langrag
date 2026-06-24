@@ -161,7 +161,8 @@ Six topics: `rag-foundations`, `software-engineering`, `ap-procurement`, `cafete
 | `LLM_PROVIDER` | `bedrock` | Agents + ingestion |
 | `SWAG_PROFILE_MODE` | `heuristic` | `heuristic` = $0 SWAG profiles |
 | `CRAG_GRADER_MODEL` | Haiku 3 | CRAG grading |
-| `RAG_MIN_VECTOR_SCORE` | `0.12` | Off-corpus confidence floor |
+| `RAG_MIN_VECTOR_SCORE` | `0.12` | Off-corpus confidence floor (all topics) |
+| `RAG_MIN_VECTOR_SCORE_TOPIC` | `0.08` | Lower floor when topic filter narrows corpus |
 | `RAG_EXPAND_SAME_DOCUMENT` | `true` | Sibling chunk expansion |
 | `RAG_SAME_DOCUMENT_MAX_PER_DOC` | `12` | Per-document expansion cap |
 | `RAG_COMPARE_SYMMETRIC_BASELINE` | `true` | Apply expand + body prune to baseline in compare mode |

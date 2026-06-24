@@ -115,3 +115,52 @@ def test_finalize_skips_cross_doc_pool_backfill_when_disabled():
     assert len(with_backfill) > len(without_backfill)
     assert all(h["document_id"] == "doc-a" for h in without_backfill)
     assert no_backfill_meta.get("backfill", {}).get("skipped") == "crag_kept_hits"
+
+
+def test_crag_ambiguous_only_skips_sibling_expand():
+    kept = [
+        {
+            "id": "p1",
+            "document_id": "recipe-doc",
+            "chunk_index": 3,
+            "text": "Apple and flour pancakes recipe.",
+            "chunk_kind": "body",
+            "score": 0.5,
+            "relevance": "ambiguous",
+        }
+    ]
+    pool = kept + [
+        {
+            "id": "p2",
+            "document_id": "recipe-doc",
+            "chunk_index": 4,
+            "text": "Chicken soup shopping list exercise.",
+            "chunk_kind": "body",
+            "score": 0.3,
+        },
+        {
+            "id": "p3",
+            "document_id": "recipe-doc",
+            "chunk_index": 5,
+            "text": "Produce a shopping list from recipes.",
+            "chunk_kind": "body",
+            "score": 0.2,
+        },
+    ]
+    expanded, meta = _finalize_retrieval_hits(
+        kept, pool, top_k=8, allow_pool_backfill=False, allow_sibling_expand=False
+    )
+    assert len(expanded) == 1
+    assert meta.get("skipped") == "sibling_expand_disabled"
+    assert meta.get("siblings_added", 0) == 0
+
+
+def test_crag_skip_sibling_expand_helper():
+    from ingestion.augmentation import _crag_skip_sibling_expand
+
+    assert _crag_skip_sibling_expand(
+        {"enabled": True, "action": "partial_rag", "kept": 1, "relevant": 0}
+    )
+    assert not _crag_skip_sibling_expand(
+        {"enabled": True, "action": "partial_rag", "kept": 2, "relevant": 1}
+    )

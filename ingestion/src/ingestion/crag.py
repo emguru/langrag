@@ -54,6 +54,78 @@ def _score_fallback_grade(hit: dict) -> str:
     return "irrelevant"
 
 
+_LEXICAL_STOPWORDS = frozenset(
+    {
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "whom",
+        "why",
+        "how",
+        "the",
+        "and",
+        "for",
+        "are",
+        "but",
+        "not",
+        "you",
+        "all",
+        "can",
+        "had",
+        "has",
+        "have",
+        "having",
+        "was",
+        "were",
+        "our",
+        "out",
+        "with",
+        "from",
+        "into",
+        "about",
+        "that",
+        "this",
+        "they",
+        "them",
+        "their",
+        "there",
+        "then",
+        "than",
+        "some",
+        "such",
+        "only",
+        "also",
+        "just",
+        "does",
+        "did",
+        "doing",
+        "will",
+        "would",
+        "could",
+        "should",
+        "your",
+        "work",
+        "show",
+        "tell",
+        "give",
+        "find",
+        "explain",
+    }
+)
+
+
+def _substantive_query_tokens(query: str) -> list[str]:
+    """Drop stopwords and very short tokens so rescue needs a real keyword hit."""
+    tokens: list[str] = []
+    for token in tokenize_for_overlap(query):
+        if len(token) < 4 or token in _LEXICAL_STOPWORDS:
+            continue
+        tokens.append(token)
+    return tokens
+
+
 def _token_fuzzy_match(query_token: str, chunk_token: str) -> bool:
     if query_token == chunk_token:
         return True
@@ -64,20 +136,32 @@ def _token_fuzzy_match(query_token: str, chunk_token: str) -> bool:
 
 
 def lexical_query_matches_chunk(query: str, chunk_text: str) -> bool:
-    """True when query terms appear in chunk text (exact or close typo match)."""
-    query_tokens = [t for t in tokenize_for_overlap(query) if len(t) >= 3]
+    """True when a substantive query term appears in chunk text (exact or typo match)."""
+    query_tokens = _substantive_query_tokens(query)
     if not query_tokens or not chunk_text.strip():
         return False
     chunk_tokens = tokenize_for_overlap(chunk_text)
     if not chunk_tokens:
         return False
+
+    matched = 0
     for q_tok in query_tokens:
         if q_tok in chunk_tokens:
-            return True
+            matched += 1
+            continue
         for c_tok in chunk_tokens:
             if _token_fuzzy_match(q_tok, c_tok):
-                return True
-    return False
+                matched += 1
+                break
+
+    if matched == 0:
+        return False
+    # Prefer distinctive terms (cafeteria, pancackes) over a single generic overlap.
+    if any(len(t) >= 5 for t in query_tokens if t in chunk_tokens or any(
+        _token_fuzzy_match(t, c) for c in chunk_tokens
+    )):
+        return True
+    return matched >= 2
 
 
 def _apply_lexical_rescue(query: str, graded: list[dict]) -> list[dict]:

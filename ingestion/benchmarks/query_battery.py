@@ -54,8 +54,16 @@ def run_battery(
     top_k: int,
     *,
     cases: list[dict[str, Any]],
+    request_delay_s: float = 2.1,
 ) -> dict:
     import httpx
+    import time
+
+    def search(*args, **kwargs):
+        data = _search(*args, **kwargs)
+        if request_delay_s > 0:
+            time.sleep(request_delay_s)
+        return data
 
     results = []
     with httpx.Client() as client:
@@ -77,7 +85,7 @@ def run_battery(
             crag_meta: dict | None = None
 
             if spec_key == "swag":
-                baseline_data = _search(
+                baseline_data = search(
                     client,
                     ingestion_url,
                     query=query,
@@ -88,7 +96,7 @@ def run_battery(
                 )
                 baseline_hits = list(baseline_data.get("hits") or [])
 
-                swag_data = _search(
+                swag_data = search(
                     client,
                     ingestion_url,
                     query=query,
@@ -131,7 +139,7 @@ def run_battery(
                 }
                 row["swag_moved"] = len(rc) > 0
             else:
-                crag_data = _search(
+                crag_data = search(
                     client,
                     ingestion_url,
                     query=query,
@@ -270,6 +278,12 @@ def main() -> int:
         action="store_true",
         help="Suppress human-readable eval summary on stderr",
     )
+    parser.add_argument(
+        "--request-delay",
+        type=float,
+        default=2.1,
+        help="Seconds to wait after each search (avoids RATE_LIMIT_SEARCH_PER_MIN=30)",
+    )
     args = parser.parse_args()
 
     eval_dir = args.cases.parent
@@ -285,6 +299,7 @@ def main() -> int:
         args.collection,
         args.top_k,
         cases=cases,
+        request_delay_s=args.request_delay,
     )
     if not args.skip_eval:
         battery["eval"] = run_scored_eval(
