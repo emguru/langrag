@@ -54,3 +54,72 @@ def test_rescue_skipped_when_relevant_exists():
         {"text": "other", "relevance": "irrelevant", "score": 0.1},
     ]
     assert _apply_lexical_rescue("pancackes", graded) == graded
+
+
+def test_decide_low_relevance_ambiguous_only_web_fallback():
+    from ingestion.crag import decide_low_relevance_outcome
+
+    action, kept = decide_low_relevance_outcome(
+        [],
+        [{"text": "invoice", "relevance": "ambiguous"}, {"text": "menu", "relevance": "ambiguous"}],
+        top_k=8,
+        query="invoice menu",
+    )
+    assert action == "web_fallback"
+    assert kept == []
+
+
+def test_decide_low_relevance_lexical_rescue_partial_rag():
+    from ingestion.crag import decide_low_relevance_outcome
+
+    action, kept = decide_low_relevance_outcome(
+        [],
+        [{"text": "pancakes", "relevance": "ambiguous", "lexical_rescue": True}],
+        top_k=8,
+        query="pancackes",
+    )
+    assert action == "partial_rag"
+    assert len(kept) == 1
+
+
+def test_decide_low_relevance_keyword_ambiguous_partial_rag():
+    from ingestion.crag import decide_low_relevance_outcome
+
+    action, kept = decide_low_relevance_outcome(
+        [],
+        [
+            {
+                "text": "Apple and flour pancakes recipe",
+                "relevance": "ambiguous",
+                "seed_key": "adversarial/pancake-recipe.md",
+            }
+        ],
+        top_k=8,
+        query="pancakes",
+    )
+    assert action == "partial_rag"
+    assert len(kept) == 1
+
+
+def test_decide_low_relevance_cross_domain_ambiguous_web_fallback():
+    from ingestion.crag import decide_low_relevance_outcome
+
+    action, kept = decide_low_relevance_outcome(
+        [],
+        [
+            {
+                "text": "Invoice processing automation",
+                "relevance": "ambiguous",
+                "seed_key": "ap-procurement/invoice-processing.md",
+            },
+            {
+                "text": "Weekly cafeteria menu",
+                "relevance": "ambiguous",
+                "seed_key": "cafeteria-ops/daily-menu.md",
+            },
+        ],
+        top_k=8,
+        query="invoice cafeteria menu",
+    )
+    assert action == "web_fallback"
+    assert kept == []

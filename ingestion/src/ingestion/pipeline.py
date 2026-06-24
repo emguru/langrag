@@ -105,6 +105,7 @@ def embed_and_upsert(
                 **chunk,
                 "topic": topic,
                 **({"document_id": doc_id} if doc_id else {}),
+                **({"seed_key": chunk["seed_key"]} if chunk.get("seed_key") else {}),
             }
             if profile_generator and settings.swag_ingest_profiles:
                 source_name = str(chunk.get("source", "unknown")).split("/")[-1]
@@ -154,13 +155,26 @@ async def fetch_url(url: str, max_bytes: int | None = None) -> tuple[bytes, str]
     raise UnsafeUrlError("Too many redirects")
 
 
-def ingest_bytes(data: bytes, filename: str, topic: str, collection: str) -> dict:
+def ingest_bytes(
+    data: bytes,
+    filename: str,
+    topic: str,
+    collection: str,
+    *,
+    seed_key: str | None = None,
+) -> dict:
     doc_id = str(uuid.uuid4())
-    s3_key = f"{topic}/{doc_id}/{filename}"
-    source = upload_to_s3(data, s3_key)
+    if seed_key:
+        source = f"validation://{seed_key}"
+    else:
+        s3_key = f"{topic}/{doc_id}/{filename}"
+        source = upload_to_s3(data, s3_key)
 
     pages = extract_text_from_bytes(data, filename)
     chunks = chunk_documents(pages, source=source)
+    if seed_key:
+        for chunk in chunks:
+            chunk["seed_key"] = seed_key
     count = embed_and_upsert(chunks, collection, topic, doc_id=doc_id)
 
     return {
@@ -169,4 +183,5 @@ def ingest_bytes(data: bytes, filename: str, topic: str, collection: str) -> dic
         "chunks_indexed": count,
         "collection": collection,
         "topic": topic,
+        "seed_key": seed_key,
     }

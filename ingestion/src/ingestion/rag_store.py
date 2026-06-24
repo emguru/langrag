@@ -139,8 +139,9 @@ def list_chunks(
                     "page": payload.get("page"),
                     "chunk_index": payload.get("chunk_index"),
                     "topic": payload.get("topic"),
-                    "document_id": payload.get("document_id"),
-                }
+                "document_id": payload.get("document_id"),
+                "seed_key": payload.get("seed_key"),
+            }
             )
             if len(chunks) >= limit:
                 break
@@ -191,6 +192,7 @@ def search_documents(
                 "topic": payload.get("topic"),
                 "document_id": payload.get("document_id"),
                 "swag_profile": payload.get("swag_profile"),
+                "seed_key": payload.get("seed_key"),
             }
         )
     return hits

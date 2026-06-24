@@ -4,7 +4,12 @@ from typing import Literal
 
 from ingestion.config import settings
 from ingestion.confidence import apply_vector_confidence_floor
-from ingestion.crag import grade_chunks, rewrite_query, search_with_crag
+from ingestion.crag import (
+    decide_low_relevance_outcome,
+    grade_chunks,
+    rewrite_query,
+    search_with_crag,
+)
 from ingestion.lift_metrics import compute_lift_metrics
 from ingestion.rag_store import search_documents
 from ingestion.same_document_expansion import (
@@ -79,16 +84,18 @@ def _apply_crag_to_hits(
                     ambiguous = retry_ambiguous
                     irrelevant = []
                 elif retry_relevant or retry_ambiguous:
-                    action = "partial_rag"
-                    kept = (retry_relevant + retry_ambiguous)[:top_k]
+                    action, kept = decide_low_relevance_outcome(
+                        retry_relevant, retry_ambiguous, top_k=top_k, query=rewritten_query
+                    )
                     relevant = retry_relevant
                     ambiguous = retry_ambiguous
                 else:
                     action = "web_fallback"
                     kept = []
             else:
-                action = "partial_rag" if (relevant or ambiguous) else "web_fallback"
-                kept = (relevant + ambiguous)[:top_k] if action == "partial_rag" else []
+                action, kept = decide_low_relevance_outcome(
+                    relevant, ambiguous, top_k=top_k, query=query
+                )
         else:
             action = "web_fallback"
             kept = []

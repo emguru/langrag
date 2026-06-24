@@ -240,6 +240,70 @@ def _partition(hits: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
     return relevant, ambiguous, irrelevant
 
 
+def _crag_lexical_keep(query: str, hit: dict) -> bool:
+    if hit.get("lexical_rescue"):
+        return True
+    text = str(hit.get("text") or "")
+    if not lexical_query_matches_chunk(query, text):
+        return False
+    tokens = _substantive_query_tokens(query)
+    if len(tokens) >= 2:
+        chunk_tokens = tokenize_for_overlap(text)
+        matched = sum(
+            1
+            for token in tokens
+            if token in chunk_tokens
+            or any(_token_fuzzy_match(token, c) for c in chunk_tokens)
+        )
+        return matched >= 2
+    return True
+
+
+def _cross_topic_ambiguous_query(query: str, ambiguous: list[dict]) -> bool:
+    """True when substantive terms land in different fixture topics (cross-domain noise)."""
+    tokens = _substantive_query_tokens(query)
+    if len(tokens) < 2:
+        return False
+    topics: set[str] = set()
+    for hit in ambiguous:
+        seed_key = str(hit.get("seed_key") or "")
+        topic = seed_key.split("/", 1)[0] if "/" in seed_key else ""
+        if not topic:
+            continue
+        text = str(hit.get("text") or "")
+        chunk_tokens = tokenize_for_overlap(text)
+        for token in tokens:
+            if token in chunk_tokens or any(
+                _token_fuzzy_match(token, c) for c in chunk_tokens
+            ):
+                topics.add(topic)
+    return len(topics) >= 2
+
+
+def decide_low_relevance_outcome(
+    relevant: list[dict],
+    ambiguous: list[dict],
+    *,
+    top_k: int,
+    query: str = "",
+) -> tuple[str, list[dict]]:
+    """
+    When too few chunks grade as relevant, keep partial RAG only if at least one
+    relevant hit exists or lexical rescue / strong single-topic keyword match applies.
+    Grader-only ambiguous hits on cross-domain queries → web_fallback.
+    """
+    if relevant:
+        return "partial_rag", (relevant + ambiguous)[:top_k]
+    if ambiguous and _cross_topic_ambiguous_query(query, ambiguous):
+        return "web_fallback", []
+    kept_ambiguous = [h for h in ambiguous if _crag_lexical_keep(query, h)]
+    if len(kept_ambiguous) == 1:
+        return "partial_rag", kept_ambiguous[:top_k]
+    if len(kept_ambiguous) > 1:
+        return "web_fallback", []
+    return "web_fallback", []
+
+
 def search_with_crag(
     query: str,
     collection: str = "",
@@ -290,16 +354,18 @@ def search_with_crag(
                     ambiguous = retry_ambiguous
                     irrelevant = []
                 elif retry_relevant or retry_ambiguous:
-                    action = "partial_rag"
-                    kept = (retry_relevant + retry_ambiguous)[:limit]
+                    action, kept = decide_low_relevance_outcome(
+                        retry_relevant, retry_ambiguous, top_k=limit, query=rewritten_query
+                    )
                     relevant = retry_relevant
                     ambiguous = retry_ambiguous
                 else:
                     action = "web_fallback"
                     kept = []
             else:
-                action = "partial_rag" if (relevant or ambiguous) else "web_fallback"
-                kept = (relevant + ambiguous)[:limit] if action == "partial_rag" else []
+                action, kept = decide_low_relevance_outcome(
+                    relevant, ambiguous, top_k=limit, query=query
+                )
         else:
             action = "web_fallback"
             kept = []

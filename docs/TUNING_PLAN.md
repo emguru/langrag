@@ -203,6 +203,28 @@ Expectations live in `ingestion/benchmarks/query_eval_cases.json`.
 
 ## Adding a new eval case
 
+For **demo regression** (legacy battery), see `query_eval_cases.json`.
+
+For **honest SWAG proof**, use the validation bed:
+
+```bash
+./scripts/seed-validation-corpus.sh      # RECREATE=1 — fixtures + stable seed_key
+./scripts/run-validation-suite.sh      # tuning (85%) + holdout (80%)
+```
+
+| Artifact | Purpose |
+|----------|---------|
+| `fixtures/corpus/` | Committed markdown — AP, cafeteria, chrome trap, adversarial |
+| `validation_manifest.json` | What to seed |
+| `validation_qrels.json` | Tuning suite (seed_key qrels + symmetric compare) |
+| `holdout_qrels.json` | Frozen holdout — do not tune against |
+
+Qrels match `seed_key` on hits, not hand-wavy text markers. `compare: true` cases require SWAG full P@1 ≥ symmetric baseline P@1.
+
+---
+
+## Legacy: adding a demo battery case
+
 1. Run the query manually in Search; note stable text in the winning chunk.
 2. Add to `query_eval_cases.json`:
 
