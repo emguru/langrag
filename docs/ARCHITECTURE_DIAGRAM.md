@@ -88,6 +88,18 @@ RAG (retrieval-augmented generation) is an **architecture pattern**, not a singl
 
 Portable SWAG core also lives in the standalone repo **`/Users/mike/SWAG`** (FAISS/Qdrant, local or cloud). Kube embeds an adapted copy under `ingestion/src/ingestion/swag/` today.
 
+**Cross-stack validation** (shared fixtures under `fixtures/corpus/`, qrels with stable `seed_key`):
+
+| Stack | Seed | Run |
+|-------|------|-----|
+| Kube EKS (full pipeline: CRAG, confidence, sibling expand) | `./scripts/seed-validation-corpus.sh` | `./scripts/run-validation-suite.sh` |
+| Kube offline (SWAG rerank only, in-memory) | — | `./scripts/run-validation-offline.sh` |
+| Standalone SWAG (FAISS) | `/Users/mike/SWAG/scripts/seed-validation-corpus.sh` | `/Users/mike/SWAG/scripts/run-validation-suite.sh` |
+
+Portable rerank proof uses `validation_qrels_rerank.json` (6 cases) + `holdout_fixtures_qrels.json` (3 fixture-only holdout cases) + `hard_rerank_qrels.json` (combined markdown chrome trap). Full kube proof adds tuning/holdout sheets with CRAG and URL-seeded docs.
+
+**SWAG v0.3 product** (`pip install -e /Users/mike/SWAG`): `swag ingest`, `swag query --compare`, `swag validate --seed`, `swag serve`. Gated rerank skips when baseline is decisive; structural markdown split tags nav vs body at ingest.
+
 ---
 
 ## 3. Search pipeline (`POST /rag/search`)

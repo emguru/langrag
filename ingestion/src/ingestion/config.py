@@ -82,6 +82,8 @@ class Settings(BaseSettings):
     swag_ungrounded_term_weight_multiplier: float = 0.35
     swag_grounding_min_token_ratio: float = 0.5
     swag_fuzzy_min_token_len: int = 4
+    swag_gated_rerank: bool = True
+    structural_split: bool = True
 
 
 settings = Settings()

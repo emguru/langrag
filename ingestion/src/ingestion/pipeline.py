@@ -63,21 +63,31 @@ def extract_text_from_bytes(data: bytes, filename: str) -> list[tuple[str, int |
 
 
 def chunk_documents(pages: list[tuple[str, int | None]], source: str) -> list[dict]:
+    from ingestion.swag.chunk_quality import classify_chunk_kind
+    from ingestion.swag.structure import split_markdown_segments
+
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
     )
     chunks = []
+    is_markdown = source.lower().endswith(".md") or "validation://" in source
     for text, page in pages:
-        for i, chunk in enumerate(splitter.split_text(text)):
-            chunks.append(
-                {
+        segments: list[tuple[str, str | None]] = [(text, None)]
+        if settings.structural_split and is_markdown:
+            segments = [(seg, kind) for seg, kind in split_markdown_segments(text)]
+
+        for segment_text, segment_kind in segments:
+            for i, chunk in enumerate(splitter.split_text(segment_text)):
+                row = {
                     "text": chunk,
                     "source": source,
                     "page": page,
                     "chunk_index": i,
                 }
-            )
+                kind = segment_kind or classify_chunk_kind(chunk)
+                row["chunk_kind"] = kind
+                chunks.append(row)
     return chunks
 
 
@@ -115,6 +125,8 @@ def embed_and_upsert(
                     page_number=chunk.get("page"),
                 )
                 payload["swag_profile"] = profile.model_dump()
+                if chunk.get("chunk_kind"):
+                    payload["chunk_kind"] = chunk["chunk_kind"]
             points.append(
                 PointStruct(
                     id=str(uuid.uuid4()),
