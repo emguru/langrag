@@ -328,7 +328,8 @@ def search_with_crag(
             },
         }
 
-    graded = grade_chunks(query, hits)
+    grade_limit = max(1, settings.crag_grade_max_chunks)
+    graded = grade_chunks(query, hits[:grade_limit])
     relevant, ambiguous, irrelevant = _partition(graded)
     action = "use_rag"
     kept = relevant[:limit]
@@ -345,7 +346,9 @@ def search_with_crag(
                     top_k=retrieve_k,
                     topic=topic,
                 )
-                retry_graded = grade_chunks(rewritten_query, retry_hits)
+                retry_graded = grade_chunks(
+                    rewritten_query, retry_hits[:grade_limit]
+                )
                 retry_relevant, retry_ambiguous, _ = _partition(retry_graded)
                 if len(retry_relevant) >= min_relevant:
                     action = "rewritten"

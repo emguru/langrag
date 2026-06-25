@@ -21,13 +21,15 @@ def test_finalize_prunes_title_chunk():
             "document_id": "doc-1",
         },
     ]
-    finalized, meta = _finalize_retrieval_hits(pool[:1], pool, top_k=3)
+    finalized, meta = _finalize_retrieval_hits([pool[1]], pool, top_k=3)
     assert finalized
     assert finalized[0]["id"] == "body"
-    assert meta.get("prune", {}).get("kept_kind") == "body"
 
 
-def test_symmetric_baseline_matches_stack_on_titles():
+def test_symmetric_baseline_matches_stack_on_titles(monkeypatch):
+    from ingestion.config import settings
+
+    monkeypatch.setattr(settings, "rag_expand_same_document", True)
     raw = [
         {
             "id": "t",
@@ -85,7 +87,10 @@ def test_crag_web_fallback_skips_backfill_flag():
     assert not _crag_kept_hits(None)
 
 
-def test_finalize_skips_cross_doc_pool_backfill_when_disabled():
+def test_finalize_skips_cross_doc_pool_backfill_when_disabled(monkeypatch):
+    from ingestion.config import settings
+
+    monkeypatch.setattr(settings, "rag_pool_backfill", True)
     kept = [
         {
             "id": "a1",

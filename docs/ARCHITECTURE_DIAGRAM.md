@@ -83,7 +83,7 @@ RAG (retrieval-augmented generation) is an **architecture pattern**, not a singl
 | Retrieval modes | `baseline` · `swag` · `crag` · `swag_crag` |
 | SWAG | Heuristic profiles + rerank (default, $0) or LLM profiles |
 | CRAG | Haiku relevance grader + query rewrite fallback |
-| Post-retrieval | Same-document sibling expansion, vector confidence floor |
+| Post-retrieval | Body-only prune, optional sibling expand (default **off**) |
 | Agents | LangGraph research team with `rag_search` tool |
 
 Portable SWAG core also lives in the standalone repo **`/Users/mike/SWAG`** (FAISS/Qdrant, local or cloud). Kube embeds an adapted copy under `ingestion/src/ingestion/swag/` today.

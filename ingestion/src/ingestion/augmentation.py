@@ -47,7 +47,10 @@ def _apply_crag_to_hits(
             "rewritten_query": None,
         }
 
-    graded = grade_chunks(query, hits)
+    grade_limit = max(1, settings.crag_grade_max_chunks)
+    hits_to_grade = hits[:grade_limit]
+
+    graded = grade_chunks(query, hits_to_grade)
     relevant, ambiguous, irrelevant = _partition(graded)
     action = "use_rag"
     kept = relevant[:top_k]
@@ -75,7 +78,9 @@ def _apply_crag_to_hits(
                         collection=collection,
                         top_k=top_k,
                     )
-                retry_graded = grade_chunks(rewritten_query, retry_hits)
+                retry_graded = grade_chunks(
+                    rewritten_query, retry_hits[: max(1, settings.crag_grade_max_chunks)]
+                )
                 retry_relevant, retry_ambiguous, _ = _partition(retry_graded)
                 if len(retry_relevant) >= min_relevant:
                     action = "rewritten"
@@ -167,7 +172,7 @@ def _finalize_retrieval_hits(
     pruned, prune_meta = prune_low_value_hits(expanded, top_k=top_k)
     if prune_meta.get("filtered"):
         expansion_meta = {**(expansion_meta or {}), "prune": prune_meta}
-    if allow_pool_backfill:
+    if allow_pool_backfill and settings.rag_pool_backfill:
         backfilled, backfill_meta = backfill_body_from_pool(
             pruned, candidate_pool, top_k=top_k
         )

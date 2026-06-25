@@ -23,8 +23,10 @@ class Settings(BaseSettings):
     # Lower floor when a topic metadata filter narrows the corpus (scoped lane search).
     rag_min_vector_score_topic: float = 0.08
     # When a chunk passes filtering, include same-document siblings from the retrieval pool.
-    rag_expand_same_document: bool = True
-    rag_same_document_max_per_doc: int = 12
+    rag_expand_same_document: bool = False
+    rag_same_document_max_per_doc: int = 3
+    # Pad results from the vector pool when fewer than top_k survive filtering.
+    rag_pool_backfill: bool = False
     # Drop title/nav/boilerplate from search hits; keeps body chunks only when possible.
     rag_filter_non_body_hits: bool = True
     # Compare baseline uses same expand+prune stack as augmented hits (honest eval).
@@ -41,6 +43,8 @@ class Settings(BaseSettings):
     crag_relevant_score: float = 0.55
     crag_ambiguous_score: float = 0.35
     crag_grade_chunk_chars: int = 600
+    # Max chunks sent to the Haiku grader per request (cost control).
+    crag_grade_max_chunks: int = 5
     # When the grader marks every chunk irrelevant, keep chunks with lexical/fuzzy
     # query overlap (e.g. typo "pancackes" vs indexed "pancakes").
     crag_lexical_rescue: bool = True
@@ -59,16 +63,17 @@ class Settings(BaseSettings):
     swag_min_score_threshold: float = 0.08
     swag_noise_vector_margin: float = 0.04
     # Without SWAG floor, vector must be within this ratio of the top hit.
-    swag_noise_relative_vector_ratio: float = 0.65
+    swag_noise_relative_vector_ratio: float = 0.78
     # Second-pass ratio when strict gate returns fewer than top_k hits.
     swag_noise_backfill_ratio: float = 0.58
+    swag_noise_backfill_enabled: bool = False
     swag_evaluative_blend_boost: float = 0.15
     swag_evaluative_title_penalty: float = 0.65
     swag_chunk_title_multiplier: float = 0.40
     swag_chunk_nav_multiplier: float = 0.30
     swag_chunk_boilerplate_multiplier: float = 0.02
     swag_intent_category_boost: float = 1.25
-    swag_max_chunks_per_source: int = 3
+    swag_max_chunks_per_source: int = 1
     swag_deduplicate_similarity: float = 0.92
     swag_adaptive_blend: bool = True
     swag_adaptive_vector_epsilon: float = 0.03
