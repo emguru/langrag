@@ -5,6 +5,7 @@ from typing import Literal
 from ingestion.config import settings
 from ingestion.confidence import apply_vector_confidence_floor
 from ingestion.crag import (
+    _resolve_below_min_relevant,
     decide_low_relevance_outcome,
     grade_chunks,
     rewrite_query,
@@ -95,15 +96,20 @@ def _apply_crag_to_hits(
                     relevant = retry_relevant
                     ambiguous = retry_ambiguous
                 else:
-                    action = "web_fallback"
-                    kept = []
+                    action, kept = _resolve_below_min_relevant(
+                        retry_relevant,
+                        retry_ambiguous,
+                        top_k=top_k,
+                        query=rewritten_query,
+                    )
             else:
                 action, kept = decide_low_relevance_outcome(
                     relevant, ambiguous, top_k=top_k, query=query
                 )
         else:
-            action = "web_fallback"
-            kept = []
+            action, kept = _resolve_below_min_relevant(
+                relevant, ambiguous, top_k=top_k, query=query
+            )
 
     return kept, {
         "enabled": True,

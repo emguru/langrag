@@ -101,6 +101,28 @@ def test_decide_low_relevance_keyword_ambiguous_partial_rag():
     assert len(kept) == 1
 
 
+def test_rag_acronym_matches_chunk():
+    assert lexical_query_matches_chunk(
+        "how does rag work",
+        "Retrieval augmented generation (RAG) combines LLMs with a vector store.",
+    )
+
+
+def test_partial_rag_when_relevant_below_min():
+    from ingestion.crag import _resolve_below_min_relevant
+
+    relevant = [
+        {"text": "RAG overview", "relevance": "relevant", "score": 0.8},
+        {"text": "RAG chunk two", "relevance": "relevant", "score": 0.7},
+        {"text": "RAG chunk three", "relevance": "relevant", "score": 0.6},
+    ]
+    action, kept = _resolve_below_min_relevant(
+        relevant, [], top_k=8, query="retrieval augmented generation"
+    )
+    assert action == "partial_rag"
+    assert len(kept) == 3
+
+
 def test_decide_low_relevance_cross_domain_ambiguous_web_fallback():
     from ingestion.crag import decide_low_relevance_outcome
 

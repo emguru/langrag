@@ -102,6 +102,18 @@ const PIPELINE_STEPS: Record<SearchMode, string> = {
   swag_crag: "Vector search → SWAG rerank → CRAG filter",
 };
 
+/** Honest framing for side-by-side mode compare — not a marketing claim. */
+const MODE_RELEVANCE_GUIDE: Record<SearchMode, string> = {
+  baseline:
+    "Shows classic RAG: embedding similarity only. README chrome, nav, and near-duplicate chunks often rank high — that is the problem this stack targets.",
+  swag:
+    "Reranks and filters before generation. Compare baseline to see nav demoted, duplicates dropped, and body chunks promoted (check Top-1 quality and noise filtered in lift cards).",
+  crag:
+    "Grades whatever vector search returns. Junk that already sits in top-K can still pass as ambiguous. Useful for strict gating, weaker alone on messy HTML corpora.",
+  swag_crag:
+    "Recommended for production-style Q&A: SWAG cleans the candidate set (≤5 chunks), then CRAG grades survivors. Compare baseline to see what was purged vs kept — empty results mean the corpus could not support a confident answer.",
+};
+
 const DEFAULT_COLLECTION = "research_docs";
 const SESSION_THREAD_KEY = "researchThreadId";
 const SESSION_CHECKPOINT_KEY = "researchCheckpoint";
@@ -192,8 +204,8 @@ function liftPanelHint(mode: SearchMode, topK: number): string {
       );
     case "swag_crag":
       return (
-        `Metrics for the active pipeline only. SWAG → CRAG is the final step; ` +
-        `earlier cards show what reranking adds before CRAG filtering.`
+        `Each card is a stage on the same query. SWAG rerank shows what reranking fixes; ` +
+        `SWAG → CRAG is what agents use — check baseline comparison below to see purged vs kept chunks.`
       );
     default:
       return "";
@@ -994,11 +1006,22 @@ export default function App() {
           <section className="card">
             <h2>Search indexed documents</h2>
             <p className="hint">
-              Upload indexes chunks once (vectors + semantic metadata). Each search runs the
-              selected pipeline automatically. Enable compare for side-by-side baseline ranking
-              and lift metrics for the <strong>active pipeline only</strong> (no CRAG cards when
-              running Vector → SWAG).
+              Upload indexes chunks once (vectors + semantic metadata). Pick a pipeline, enable
+              compare, and run the same query twice: <strong>Vector only</strong> (naive RAG) vs{" "}
+              <strong>Vector → SWAG → CRAG</strong> (what research agents use). Lift metrics and
+              the baseline panel show what was purged vs kept — that is the honest relevance proof.
             </p>
+            <div className="compare-guide" role="note">
+              <strong>Relevance guide — {SEARCH_MODE_LABELS[searchMode]}</strong>
+              <p>{MODE_RELEVANCE_GUIDE[searchMode]}</p>
+              <p className="compare-guide-demo">
+                <strong>Demo tip:</strong> try{" "}
+                <em>how does rag work</em> or{" "}
+                <em>What is retrieval augmented generation?</em> on the mixed corpus with compare on.
+                Vector only surfaces README chrome; full stack should keep body paragraphs or return
+                empty when CRAG cannot justify an answer.
+              </p>
+            </div>
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -1116,12 +1139,15 @@ export default function App() {
           </section>
           {compareBaseline && searchBaseline.length > 0 && (
             <section className="card full-width">
-              <h2>Baseline comparison (vector only)</h2>
+              <h2>What was purged vs kept</h2>
               <p className="hint">
-                Side-by-side with un-augmented vector search
+                Left: raw vector top-K (similarity ≠ relevance). Right:{" "}
+                {SEARCH_MODE_LABELS[searchMode]}
                 {searchComparison
                   ? ` · ${searchComparison.baseline_count} baseline vs ${searchComparison.augmented_count} augmented hits`
                   : ""}
+                . Chunks that disappear here were demoted by SWAG noise filter, dedupe, CRAG grade,
+                or confidence rules — not hidden.
               </p>
               <div className="compare-grid">
                 <div className="compare-column">

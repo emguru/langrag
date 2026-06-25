@@ -100,6 +100,8 @@ Portable rerank proof uses `validation_qrels_rerank.json` (6 cases) + `holdout_f
 
 **SWAG v0.3 product** (`pip install -e /Users/mike/SWAG`): `swag ingest`, `swag query --compare`, `swag validate --seed`, `swag serve`. Gated rerank skips when baseline is decisive; structural markdown split tags nav vs body at ingest.
 
+**Showcase relevance proof:** Search tab at langrag.automatico.llc runs four modes on the same query with baseline compare — Vector only (naive RAG junk), SWAG (rerank/filter), CRAG alone (grades messy top-K), SWAG→CRAG (production default). Purged vs kept chunks are visible in the UI; zero hits after CRAG means the corpus could not support a confident answer.
+
 ---
 
 ## 3. Search pipeline (`POST /rag/search`)

@@ -116,11 +116,14 @@ _LEXICAL_STOPWORDS = frozenset(
 )
 
 
+_LEXICAL_MIN_TOKEN_LEN = 3
+
+
 def _substantive_query_tokens(query: str) -> list[str]:
-    """Drop stopwords and very short tokens so rescue needs a real keyword hit."""
+    """Drop stopwords; keep short domain terms (rag, po, api) for lexical rescue."""
     tokens: list[str] = []
     for token in tokenize_for_overlap(query):
-        if len(token) < 4 or token in _LEXICAL_STOPWORDS:
+        if len(token) < _LEXICAL_MIN_TOKEN_LEN or token in _LEXICAL_STOPWORDS:
             continue
         tokens.append(token)
     return tokens
@@ -129,6 +132,8 @@ def _substantive_query_tokens(query: str) -> list[str]:
 def _token_fuzzy_match(query_token: str, chunk_token: str) -> bool:
     if query_token == chunk_token:
         return True
+    if len(query_token) < _LEXICAL_MIN_TOKEN_LEN or len(chunk_token) < _LEXICAL_MIN_TOKEN_LEN:
+        return False
     if len(query_token) < 4 or len(chunk_token) < 4:
         return False
     ratio = SequenceMatcher(None, query_token, chunk_token).ratio()
@@ -156,6 +161,8 @@ def lexical_query_matches_chunk(query: str, chunk_text: str) -> bool:
 
     if matched == 0:
         return False
+    if len(query_tokens) == 1:
+        return matched >= 1
     # Prefer distinctive terms (cafeteria, pancackes) over a single generic overlap.
     if any(len(t) >= 5 for t in query_tokens if t in chunk_tokens or any(
         _token_fuzzy_match(t, c) for c in chunk_tokens
@@ -297,11 +304,24 @@ def decide_low_relevance_outcome(
     if ambiguous and _cross_topic_ambiguous_query(query, ambiguous):
         return "web_fallback", []
     kept_ambiguous = [h for h in ambiguous if _crag_lexical_keep(query, h)]
-    if len(kept_ambiguous) == 1:
+    if kept_ambiguous:
         return "partial_rag", kept_ambiguous[:top_k]
-    if len(kept_ambiguous) > 1:
-        return "web_fallback", []
     return "web_fallback", []
+
+
+def _resolve_below_min_relevant(
+    relevant: list[dict],
+    ambiguous: list[dict],
+    *,
+    top_k: int,
+    query: str,
+) -> tuple[str, list[dict]]:
+    """Keep partial RAG when the grader found some signal but not enough for use_rag."""
+    if relevant:
+        return "partial_rag", relevant[:top_k]
+    return decide_low_relevance_outcome(
+        relevant, ambiguous, top_k=top_k, query=query
+    )
 
 
 def search_with_crag(
@@ -363,15 +383,17 @@ def search_with_crag(
                     relevant = retry_relevant
                     ambiguous = retry_ambiguous
                 else:
-                    action = "web_fallback"
-                    kept = []
+                    action, kept = _resolve_below_min_relevant(
+                        retry_relevant, retry_ambiguous, top_k=limit, query=rewritten_query
+                    )
             else:
                 action, kept = decide_low_relevance_outcome(
                     relevant, ambiguous, top_k=limit, query=query
                 )
         else:
-            action = "web_fallback"
-            kept = []
+            action, kept = _resolve_below_min_relevant(
+                relevant, ambiguous, top_k=limit, query=query
+            )
 
     return {
         "query": query,
