@@ -8,11 +8,12 @@ from ingestion.crag import (
     _resolve_below_min_relevant,
     decide_low_relevance_outcome,
     grade_chunks,
+    hits_for_crag_grading,
     rewrite_query,
     search_with_crag,
 )
 from ingestion.lift_metrics import compute_lift_metrics
-from ingestion.rag_store import search_documents
+from ingestion.rag_store import merge_phrase_candidates, phrase_match_candidates, search_documents
 from ingestion.same_document_expansion import (
     backfill_body_from_pool,
     expand_same_document_siblings,
@@ -49,7 +50,7 @@ def _apply_crag_to_hits(
         }
 
     grade_limit = max(1, settings.crag_grade_max_chunks)
-    hits_to_grade = hits[:grade_limit]
+    hits_to_grade = hits_for_crag_grading(hits, grade_limit)
 
     graded = grade_chunks(query, hits_to_grade)
     relevant, ambiguous, irrelevant = _partition(graded)
@@ -146,12 +147,19 @@ def _fetch_candidate_pool(
     top_k: int,
     topic: str | None,
 ) -> list[dict]:
-    return search_documents(
+    vector_hits = search_documents(
         query,
         collection=collection,
         top_k=_candidate_pool_size(top_k),
         topic=topic,
     )
+    phrase_hits = phrase_match_candidates(
+        query,
+        collection=collection,
+        topic=topic,
+        exclude_ids={h.get("id") for h in vector_hits if h.get("id")},
+    )
+    return merge_phrase_candidates(vector_hits, phrase_hits)
 
 
 def _finalize_retrieval_hits(

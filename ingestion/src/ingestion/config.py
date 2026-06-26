@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     rag_same_document_max_per_doc: int = 3
     # Pad results from the vector pool when fewer than top_k survive filtering.
     rag_pool_backfill: bool = False
+    # Inject chunks whose text contains the full query phrase into the vector pool
+    # (recall fix when embeddings miss an exact phrase match).
+    rag_phrase_candidate_backfill: bool = True
+    rag_phrase_max_hits: int = 3
+    rag_phrase_min_words: int = 2
     # Drop title/nav/boilerplate from search hits; keeps body chunks only when possible.
     rag_filter_non_body_hits: bool = True
     # Compare baseline uses same expand+prune stack as augmented hits (honest eval).

@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ingestion.config import settings
-from ingestion.rag_store import search_documents
+from ingestion.rag_store import merge_phrase_candidates, phrase_match_candidates, search_documents
 from ingestion.swag.utils import tokenize_for_overlap
 
 
@@ -353,16 +353,8 @@ def _crag_lexical_keep(query: str, hit: dict) -> bool:
     text = str(hit.get("text") or "")
     if not lexical_query_matches_chunk(query, text):
         return False
-    tokens = _substantive_query_tokens(query)
-    if len(tokens) >= 2:
-        chunk_tokens = tokenize_for_overlap(text)
-        matched = sum(
-            1
-            for token in tokens
-            if token in chunk_tokens
-            or any(_token_fuzzy_match(token, c) for c in chunk_tokens)
-        )
-        return matched >= 2
+    # Ambiguous hits are already grader-approved partial matches (e.g. "tennis shoes"
+    # → athletic catalog with "shoes"). lexical_query_matches_chunk is enough.
     return True
 
 
@@ -430,6 +422,16 @@ def _resolve_below_min_relevant(
     )
 
 
+def hits_for_crag_grading(hits: list[dict], grade_limit: int) -> list[dict]:
+    """Always send explicit phrase matches to the grader, then fill from ranked hits."""
+    phrase_hits = [h for h in hits if h.get("phrase_match")]
+    if not phrase_hits:
+        return hits[:grade_limit]
+    phrase_ids = {h.get("id") for h in phrase_hits}
+    rest = [h for h in hits if h.get("id") not in phrase_ids][:grade_limit]
+    return phrase_hits + rest
+
+
 def search_with_crag(
     query: str,
     collection: str = "",
@@ -439,7 +441,14 @@ def search_with_crag(
     limit = top_k or settings.rag_top_k
     retrieve_k = min(max(limit * 2, limit), settings.crag_retrieve_multiplier * limit)
 
-    hits = search_documents(query, collection=collection, top_k=retrieve_k, topic=topic)
+    vector_hits = search_documents(query, collection=collection, top_k=retrieve_k, topic=topic)
+    phrase_hits = phrase_match_candidates(
+        query,
+        collection=collection,
+        topic=topic,
+        exclude_ids={h.get("id") for h in vector_hits if h.get("id")},
+    )
+    hits = merge_phrase_candidates(vector_hits, phrase_hits)
     if not hits:
         return {
             "query": query,
@@ -455,7 +464,7 @@ def search_with_crag(
         }
 
     grade_limit = max(1, settings.crag_grade_max_chunks)
-    graded = grade_chunks(query, hits[:grade_limit])
+    graded = grade_chunks(query, hits_for_crag_grading(hits, grade_limit))
     relevant, ambiguous, irrelevant = _partition(graded)
     action = "use_rag"
     kept = relevant[:limit]

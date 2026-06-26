@@ -123,6 +123,28 @@ def test_partial_rag_when_relevant_below_min():
     assert len(kept) == 3
 
 
+def test_decide_low_relevance_tennis_shoes_athletic_catalog_partial_rag():
+    from ingestion.crag import decide_low_relevance_outcome
+
+    action, kept = decide_low_relevance_outcome(
+        [],
+        [
+            {
+                "text": (
+                    "# Athletic Shoe Catalog 2024\n\n## Running shoes\n\n"
+                    "Lightweight trainers with responsive foam for daily mileage."
+                ),
+                "relevance": "ambiguous",
+                "seed_key": "adversarial/shoe-catalog.md",
+            }
+        ],
+        top_k=8,
+        query="tennis shoes",
+    )
+    assert action == "partial_rag"
+    assert len(kept) == 1
+
+
 def test_decide_low_relevance_cross_domain_single_ambiguous_web_fallback():
     from ingestion.crag import decide_low_relevance_outcome
 

@@ -506,6 +506,50 @@ button.secondary {
   margin-bottom: 0;
 }
 
+.demo-scenarios {
+  margin: 1rem 0 1.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.demo-scenarios > strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: #e2e8f0;
+}
+
+.demo-scenario-group {
+  margin-top: 0.75rem;
+}
+
+.demo-scenario-heading {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 0.45rem;
+}
+
+.demo-scenario-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.demo-scenario-btn {
+  font-size: 0.82rem;
+  padding: 0.4rem 0.65rem;
+}
+
+.demo-scenario-btn.optional {
+  border-color: #475569;
+  color: #cbd5e1;
+}
+
 .compare-guide-demo {
   font-size: 0.82rem !important;
   color: #94a3b8 !important;

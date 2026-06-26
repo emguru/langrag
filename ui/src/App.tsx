@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DEMO_SCENARIOS } from "./demoQueries";
 
 type RunEvent = { type: string; message: string; timestamp: string };
 type SubQuestion = { id: string; question: string; rationale: string };
@@ -88,11 +89,13 @@ type PreviewData = {
   preview_truncated: boolean;
 };
 
+const SEARCH_MODES_ORDER: SearchMode[] = ["swag", "baseline", "crag", "swag_crag"];
+
 const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
   baseline: "Vector only",
   swag: "Vector → SWAG",
-  crag: "Vector → CRAG",
-  swag_crag: "Vector → SWAG → CRAG",
+  crag: "Vector → CRAG (optional)",
+  swag_crag: "Vector → SWAG → CRAG (optional)",
 };
 
 const PIPELINE_STEPS: Record<SearchMode, string> = {
@@ -107,11 +110,11 @@ const MODE_RELEVANCE_GUIDE: Record<SearchMode, string> = {
   baseline:
     "Shows classic RAG: embedding similarity only. README chrome, nav, and near-duplicate chunks often rank high — that is the problem this stack targets.",
   swag:
-    "Reranks and filters before generation. Compare baseline to see nav demoted, duplicates dropped, and body chunks promoted (check Top-1 quality and noise filtered in lift cards).",
+    "Primary demo path. Compare baseline to see nav demoted, duplicates dropped, and body chunks promoted (Top-1 quality and noise filtered in lift cards). This is what SWAG sells.",
   crag:
-    "Grades whatever vector search returns. Junk that already sits in top-K can still pass as ambiguous. Useful for strict gating, weaker alone on messy HTML corpora.",
+    "Optional grader on raw vector hits — tune via ingestion config when your corpus needs strict gating. Weaker alone on messy HTML corpora.",
   swag_crag:
-    "Recommended for production-style Q&A: SWAG cleans the candidate set (≤5 chunks), then CRAG grades survivors. Compare baseline to see what was purged vs kept — empty results mean the corpus could not support a confident answer.",
+    "Optional agent stack: SWAG cleans candidates, then CRAG grades survivors. Empty results often mean the grader rejected low confidence — not that SWAG failed. Use scripted SWAG demos first.",
 };
 
 const DEFAULT_COLLECTION = "research_docs";
@@ -195,7 +198,7 @@ function liftPanelHint(mode: SearchMode, topK: number): string {
       return (
         `SWAG rerank compares raw vector top-${topK} vs semantic rerank only. ` +
         `SWAG full stack compares symmetric baseline (same expand + body prune) ` +
-        `vs rerank plus the retrieval stack.`
+        `vs rerank plus the retrieval stack — use these cards as the SWAG proof.`
       );
     case "crag":
       return (
@@ -204,8 +207,8 @@ function liftPanelHint(mode: SearchMode, topK: number): string {
       );
     case "swag_crag":
       return (
-        `Each card is a stage on the same query. SWAG rerank shows what reranking fixes; ` +
-        `SWAG → CRAG is what agents use — check baseline comparison below to see purged vs kept chunks.`
+        `Optional full stack. SWAG cards show rerank value first; SWAG → CRAG adds grader ` +
+        `filtering — check baseline comparison for purged vs kept chunks.`
       );
     default:
       return "";
@@ -324,7 +327,7 @@ export default function App() {
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchTopic, setSearchTopic] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("swag_crag");
+  const [searchMode, setSearchMode] = useState<SearchMode>("swag");
   const [compareBaseline, setCompareBaseline] = useState(true);
   const [searchResults, setSearchResults] = useState<RagHit[]>([]);
   const [searchBaseline, setSearchBaseline] = useState<RagHit[]>([]);
@@ -450,8 +453,23 @@ export default function App() {
     if (tab === "library") loadLibrary();
   }
 
-  async function runSearch() {
-    if (!searchQuery.trim()) return;
+  async function runSearch(overrides?: {
+    query?: string;
+    topic?: string;
+    mode?: SearchMode;
+    compare?: boolean;
+  }) {
+    const query = (overrides?.query ?? searchQuery).trim();
+    if (!query) return;
+    const mode = overrides?.mode ?? searchMode;
+    const compare = overrides?.compare ?? compareBaseline;
+    const topicFilter = overrides?.topic ?? searchTopic;
+
+    if (overrides?.query != null) setSearchQuery(overrides.query);
+    if (overrides?.topic != null) setSearchTopic(overrides.topic);
+    if (overrides?.mode != null) setSearchMode(overrides.mode);
+    if (overrides?.compare != null) setCompareBaseline(overrides.compare);
+
     setSearchBusy(true);
     setSearchResults([]);
     setSearchBaseline([]);
@@ -463,12 +481,12 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        query: searchQuery,
+        query,
         collection: DEFAULT_COLLECTION,
         top_k: 8,
-        mode: searchMode,
-        compare: compareBaseline,
-        ...(searchTopic ? { topic: searchTopic } : {}),
+        mode,
+        compare,
+        ...(topicFilter ? { topic: topicFilter } : {}),
       }),
     });
     const data = await resp.json();
@@ -482,6 +500,17 @@ export default function App() {
     setSearchComparison(data.comparison || null);
     setSearchLift(normalizeSearchLift(data.lift, 8));
     setSearchConfidence(data.confidence || null);
+  }
+
+  function runDemoScenario(scenarioId: string) {
+    const scenario = DEMO_SCENARIOS.find((s) => s.id === scenarioId);
+    if (!scenario) return;
+    void runSearch({
+      query: scenario.query,
+      topic: scenario.topic,
+      mode: scenario.mode,
+      compare: scenario.compare,
+    });
   }
 
   async function loadChunks(source: string) {
@@ -1006,27 +1035,60 @@ export default function App() {
           <section className="card">
             <h2>Search indexed documents</h2>
             <p className="hint">
-              Upload indexes chunks once (vectors + semantic metadata). Pick a pipeline, enable
-              compare, and run the same query twice: <strong>Vector only</strong> (naive RAG) vs{" "}
-              <strong>Vector → SWAG → CRAG</strong> (what research agents use). Lift metrics and
-              the baseline panel show what was purged vs kept — that is the honest relevance proof.
+              <strong>SWAG</strong> is the demo story: compare <strong>Vector only</strong> vs{" "}
+              <strong>Vector → SWAG</strong> to show rerank lift (nav demoted, body promoted).
+              CRAG layers are optional — enable when your corpus needs grader gating; all knobs live
+              in ingestion config.
             </p>
             <div className="compare-guide" role="note">
               <strong>Relevance guide — {SEARCH_MODE_LABELS[searchMode]}</strong>
               <p>{MODE_RELEVANCE_GUIDE[searchMode]}</p>
-              <p className="compare-guide-demo">
-                <strong>Demo tip:</strong> try{" "}
-                <em>how does rag work</em> or{" "}
-                <em>What is retrieval augmented generation?</em> on the mixed corpus with compare on.
-                Vector only surfaces README chrome; full stack should keep body paragraphs or return
-                empty when CRAG cannot justify an answer.
+            </div>
+            <div className="demo-scenarios">
+              <strong>Scripted demo paths</strong>
+              <p className="hint">
+                Frozen from the validation suite — click to run with the right topic and pipeline.
               </p>
+              <div className="demo-scenario-group">
+                <span className="demo-scenario-heading">SWAG proof</span>
+                <div className="demo-scenario-buttons">
+                  {DEMO_SCENARIOS.filter((s) => s.group === "swag").map((scenario) => (
+                    <button
+                      key={scenario.id}
+                      type="button"
+                      className="secondary demo-scenario-btn"
+                      disabled={searchBusy}
+                      title={scenario.blurb}
+                      onClick={() => runDemoScenario(scenario.id)}
+                    >
+                      {scenario.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="demo-scenario-group">
+                <span className="demo-scenario-heading">Optional layers</span>
+                <div className="demo-scenario-buttons">
+                  {DEMO_SCENARIOS.filter((s) => s.group === "optional").map((scenario) => (
+                    <button
+                      key={scenario.id}
+                      type="button"
+                      className="secondary demo-scenario-btn optional"
+                      disabled={searchBusy}
+                      title={scenario.blurb}
+                      onClick={() => runDemoScenario(scenario.id)}
+                    >
+                      {scenario.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="e.g. How do we automate invoice processing and PO approval?"
-              onKeyDown={(e) => e.key === "Enter" && runSearch()}
+              onKeyDown={(e) => e.key === "Enter" && void runSearch()}
             />
             <label htmlFor="search-topic-filter">Topic filter (optional)</label>
             <select
@@ -1042,13 +1104,13 @@ export default function App() {
               ))}
             </select>
             <p className="hint">
-              Cross-domain queries (invoice / cafeteria) work better with a topic lane — try{" "}
-              <strong>ap-procurement</strong> for PO questions or{" "}
-              <strong>cafeteria-ops</strong> for food-service questions.
-              </p>
+              Use a <strong>topic lane</strong> for domain demos (AP, cafeteria). Mixed corpus is
+              intentionally noisy — free-form queries belong in SWAG mode with compare, not as the
+              primary pitch.
+            </p>
             <fieldset className="mode-selector">
               <legend>Retrieval pipeline</legend>
-              {(Object.keys(SEARCH_MODE_LABELS) as SearchMode[]).map((mode) => (
+              {SEARCH_MODES_ORDER.map((mode) => (
                 <label key={mode} className="mode-option">
                   <input
                     type="radio"
@@ -1069,7 +1131,7 @@ export default function App() {
               />
               Compare against baseline vector ranking
             </label>
-            <button onClick={runSearch} disabled={searchBusy || !searchQuery.trim()}>
+            <button onClick={() => void runSearch()} disabled={searchBusy || !searchQuery.trim()}>
               {searchBusy ? "Searching…" : `Search (${SEARCH_MODE_LABELS[searchMode]})`}
             </button>
           </section>
@@ -1120,10 +1182,13 @@ export default function App() {
                   Number(searchCrag.kept ?? 0) === 0 && (
                     <>
                       {" "}
-                      CRAG found no relevant chunks in
-                      {searchTopic ? ` topic “${searchTopic}”` : " this collection"}.
+                      CRAG returned empty — check baseline compare: SWAG may still have surfaced
+                      useful chunks before grading.
                     </>
                   )}
+                {searchMode === "swag" && searchBaseline.length > 0 && (
+                  <> Try a scripted demo path or narrow the topic filter.</>
+                )}
               </p>
             )}
             {searchResults.map((h, i) => (
