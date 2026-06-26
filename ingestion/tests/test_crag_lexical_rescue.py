@@ -123,6 +123,47 @@ def test_partial_rag_when_relevant_below_min():
     assert len(kept) == 3
 
 
+def test_decide_low_relevance_cross_domain_single_ambiguous_web_fallback():
+    from ingestion.crag import decide_low_relevance_outcome
+
+    action, kept = decide_low_relevance_outcome(
+        [],
+        [
+            {
+                "text": (
+                    "Weekly cafeteria menu with grilled chicken. "
+                    "Catering orders use a separate procurement code."
+                ),
+                "relevance": "ambiguous",
+                "seed_key": "cafeteria-ops/daily-menu.md",
+            }
+        ],
+        top_k=8,
+        query="invoice cafeteria menu",
+    )
+    assert action == "web_fallback"
+    assert kept == []
+
+
+def test_decide_low_relevance_cross_domain_multi_bait_web_fallback():
+    from ingestion.crag import decide_low_relevance_outcome
+
+    action, kept = decide_low_relevance_outcome(
+        [],
+        [
+            {
+                "text": "Apple and flour pancakes recipe",
+                "relevance": "ambiguous",
+                "seed_key": "adversarial/pancake-recipe.md",
+            }
+        ],
+        top_k=8,
+        query="shoe sizing pancake recipe",
+    )
+    assert action == "web_fallback"
+    assert kept == []
+
+
 def test_decide_low_relevance_cross_domain_ambiguous_web_fallback():
     from ingestion.crag import decide_low_relevance_outcome
 

@@ -118,6 +118,62 @@ _LEXICAL_STOPWORDS = frozenset(
 
 _LEXICAL_MIN_TOKEN_LEN = 3
 
+# Substantive query tokens mapped to fixture/batch topic families (cross-domain bait detection).
+_DOMAIN_TOKEN_HINTS: dict[str, frozenset[str]] = {
+    "ap-procurement": frozenset(
+        {
+            "invoice",
+            "invoices",
+            "procurement",
+            "payable",
+            "purchase",
+            "matching",
+            "vendor",
+            "receipt",
+            "goods",
+        }
+    ),
+    "cafeteria-ops": frozenset(
+        {
+            "cafeteria",
+            "menu",
+            "food",
+            "allergen",
+            "kitchen",
+            "safety",
+            "grilled",
+        }
+    ),
+    "rag-foundations": frozenset(
+        {
+            "rag",
+            "retrieval",
+            "chunking",
+            "embedding",
+            "augmented",
+            "generation",
+        }
+    ),
+    "adversarial": frozenset(
+        {
+            "pancake",
+            "pancakes",
+            "recipe",
+            "flour",
+            "buttermilk",
+        }
+    ),
+    "retail-catalog": frozenset(
+        {
+            "shoe",
+            "shoes",
+            "sizing",
+            "catalog",
+            "athletic",
+        }
+    ),
+}
+
 
 def _substantive_query_tokens(query: str) -> list[str]:
     """Drop stopwords; keep short domain terms (rag, po, api) for lexical rescue."""
@@ -247,6 +303,50 @@ def _partition(hits: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
     return relevant, ambiguous, irrelevant
 
 
+def _matched_domain_families(query: str) -> set[str]:
+    tokens = set(_substantive_query_tokens(query))
+    if not tokens:
+        return set()
+    families: set[str] = set()
+    for family, hints in _DOMAIN_TOKEN_HINTS.items():
+        if tokens & hints:
+            families.add(family)
+    return families
+
+
+def _cross_domain_multi_intent_query(query: str) -> bool:
+    """True when the query names two or more topic families (e.g. invoice + cafeteria)."""
+    return len(_matched_domain_families(query)) >= 2
+
+
+def _hit_matches_family_query_tokens(query: str, hit: dict, family: str) -> bool:
+    """True when the hit text matches at least one substantive query token for this family."""
+    hints = _DOMAIN_TOKEN_HINTS.get(family, frozenset())
+    family_query_tokens = [
+        token for token in _substantive_query_tokens(query) if token in hints
+    ]
+    if not family_query_tokens:
+        return True
+    text = str(hit.get("text") or "")
+    chunk_tokens = tokenize_for_overlap(text)
+    return any(
+        token in chunk_tokens
+        or any(_token_fuzzy_match(token, chunk_token) for chunk_token in chunk_tokens)
+        for token in family_query_tokens
+    )
+
+
+def _hit_covers_query_domain_intents(query: str, hit: dict) -> bool:
+    """Ambiguous-only keep requires the chunk to answer every domain family in the query."""
+    query_families = _matched_domain_families(query)
+    if len(query_families) < 2:
+        return True
+    return all(
+        _hit_matches_family_query_tokens(query, hit, family)
+        for family in query_families
+    )
+
+
 def _crag_lexical_keep(query: str, hit: dict) -> bool:
     if hit.get("lexical_rescue"):
         return True
@@ -304,8 +404,14 @@ def decide_low_relevance_outcome(
     if ambiguous and _cross_topic_ambiguous_query(query, ambiguous):
         return "web_fallback", []
     kept_ambiguous = [h for h in ambiguous if _crag_lexical_keep(query, h)]
+    if kept_ambiguous and _cross_domain_multi_intent_query(query):
+        kept_ambiguous = [
+            h for h in kept_ambiguous if _hit_covers_query_domain_intents(query, h)
+        ]
     if kept_ambiguous:
         return "partial_rag", kept_ambiguous[:top_k]
+    if ambiguous and _cross_domain_multi_intent_query(query):
+        return "web_fallback", []
     return "web_fallback", []
 
 

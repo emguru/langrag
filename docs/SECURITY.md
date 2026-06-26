@@ -102,6 +102,38 @@ Last reviewed against ingress mode (`langrag.automatico.llc` + Cognito).
 | **IAM** | IRSA with model-scoped Bedrock; private S3 bucket |
 | **Ops** | `demo-stop.sh` removes public LB; budget alerts on Bedrock |
 
+### Retrieval red team (SWAG / CRAG)
+
+Last exercised against live EKS mixed corpus (`research_docs`, ~350 chunks, nine topics). Method: adversarial queries on `POST /rag/search` across `baseline`, `swag`, and `swag_crag`; validation qrels; manual compare-panel review.
+
+#### What holds
+
+| Check | Result |
+|-------|--------|
+| Legit domain queries (RAG, AP, cafeteria) | SWAG→CRAG returns body chunks; baseline often surfaces chrome |
+| Off-corpus queries | Confidence floor + CRAG → 0 hits |
+| Wrong topic filter | 0 hits (lane isolation works) |
+| Compare panel | Purged vs kept visible — falsifiable, not hidden |
+| Portable qrels | 9/10 tuning, 6/6 holdout (rerank + full stack suites) |
+
+#### Retrieval attacks and mitigations
+
+| Attack | Typical result | Severity | Mitigation |
+|--------|----------------|----------|------------|
+| **Cross-domain bait** (`invoice cafeteria menu`) | Was 1 cafeteria hit via `partial_rag` | High | Multi-intent domain gate in `decide_low_relevance_outcome` (2026-06) |
+| **Multi-bait** (`shoe sizing pancake recipe`) | Was pancake-only `partial_rag` | Medium | Same domain-family coverage check |
+| **Chrome-seeking query** (`RAG From Scratch badge`) | SWAG may still rank nav #1 | Medium | Known limit — document; use body-focused queries in demos |
+| **CRAG-only on messy top-K** | Ambiguous chrome survives | Medium | Use SWAG→CRAG, not CRAG alone |
+| **Prompt-injection query text** | Retrieves prompt-engineering lesson chunks | Medium | Retrieval ≠ jailbreak; agent synthesis is separate risk |
+| **Shared collection poison** | User upload affects all searchers | Medium | Demo: single tenant; prod: per-tenant collections |
+| **Inconsistent cross-domain wording** | Near-duplicate queries differ (`invoice cafeteria menu` vs `cafeteria menu invoice approval`) | Low | Grader + lexical gates; accept some edge variance |
+
+#### Residual retrieval limits (honest)
+
+- SWAG targets **structured markdown** (nav vs body), not all corpora.
+- `partial_rag` with `relevant=0` means low-confidence keep — prefer empty over garbage, but users should read compare panel.
+- Validation tuning case `cross-invoice-cafeteria` is the canary for cross-domain CRAG policy.
+
 ### Residual risks (accepted at demo tier)
 
 | Risk | Severity | Notes |
@@ -123,6 +155,9 @@ Last reviewed against ingress mode (`langrag.automatico.llc` + Cognito).
 - Collection picker removed; API allowlists `research_docs` only
 - Research rate limit lowered to 2/min/IP
 - LangSmith/API keys no longer synced to `showcase` namespace
+- CRAG **multi-intent domain gate** — cross-domain queries (e.g. invoice + cafeteria) no longer return single-topic `partial_rag` survivors
+- CRAG **partial keep** when grader finds relevant chunks below `min_relevant` (no longer zeroes good hits)
+- Search UI **relevance guide** + purged-vs-kept compare copy (showcase)
 
 ### Human-in-the-loop & RAG visibility
 
