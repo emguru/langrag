@@ -59,7 +59,23 @@ Per case / aggregated:
 - Wrong-version rate (trap docs in top-5)
 - Latency (ms per method)
 
-Answer correctness / hallucination rate require a generation stage (Ragas, DeepEval, LangSmith) — hook planned at `run.py --generate` (not in pilot).
+Answer correctness / hallucination rate: enable with `--generate` (extractive by default; `--generate-mode llm` for Bedrock/OpenAI).
+
+```bash
+./scripts/run-eval-harness.sh --generate
+./scripts/run-eval-harness.sh --generate --generate-mode llm --generate-method swag
+```
+
+With `--generate`, the harness scores all four pillars per qrel:
+
+| Pillar | Scored |
+|--------|--------|
+| Input corpus | manifest + topic filter |
+| Input question | `query` field |
+| Expected retrieval | recall@5, citation@1, wrong-version rate |
+| Expected answer | `expected_answer`, `acceptable_alternate_terms`, grounded + hallucination checks |
+
+Answer thresholds live in `eval_harness/manifest.json` under `answer_thresholds`.
 
 ## Brutal thresholds
 

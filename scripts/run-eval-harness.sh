@@ -15,6 +15,8 @@ export PYTHONPATH="${ROOT}/ingestion/benchmarks:${ROOT}/ingestion/src:${HARNESS}
 export SWAG_PROFILE_MODE="${SWAG_PROFILE_MODE:-heuristic}"
 export SWAG_GATED_RERANK="${SWAG_GATED_RERANK:-false}"
 
+# Optional: ./scripts/run-eval-harness.sh --generate
+
 mkdir -p "${HARNESS}/results"
 
 exec "${PYTHON}" "${HARNESS}/run.py" \

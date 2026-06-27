@@ -125,11 +125,17 @@ def evaluate_corpus(
     bm25_by_topic: dict,
     baselines: list[str],
     pool_k: int,
+    generate: bool = False,
+    generate_mode: str = "extractive",
+    generate_methods: list[str] | None = None,
 ) -> dict[str, Any]:
+    from eval_harness.answer_metrics import score_answer
+    from eval_harness.generation import generate_answer
     from eval_harness.metrics import aggregate_metric_rows, score_retrieval
 
     topic = str(sheet.get("topic") or corpus.get("topic") or "")
     top_k = int(sheet.get("top_k") or 5)
+    gen_methods = set(generate_methods or ["swag", "hybrid_rrf"])
     case_rows: list[dict[str, Any]] = []
     latency_ms: dict[str, list[float]] = {name: [] for name in baselines}
 
@@ -150,12 +156,28 @@ def evaluate_corpus(
                 pool_k=pool_k,
             )
             latency_ms[name].append((time.perf_counter() - start) * 1000.0)
-            per_method[name] = score_retrieval(hits, case, k=top_k)
+            metrics = score_retrieval(hits, case, k=top_k)
+            if generate and name in gen_methods:
+                answer, gen_meta = generate_answer(
+                    str(case["query"]),
+                    hits,
+                    mode=generate_mode,
+                )
+                metrics.update(
+                    score_answer(
+                        answer,
+                        case,
+                        hits=hits,
+                        generation_meta=gen_meta,
+                    )
+                )
+            per_method[name] = metrics
         case_rows.append(
             {
                 "id": case.get("id"),
                 "category": case.get("category"),
                 "query": case.get("query"),
+                "expected_answer": case.get("expected_answer"),
                 "methods": per_method,
             }
         )
@@ -198,6 +220,7 @@ def build_report(
     corpus_reports: list[dict[str, Any]],
     *,
     baselines: list[str],
+    generate_methods: list[str] | None = None,
 ) -> dict[str, Any]:
     from eval_harness.metrics import aggregate_metric_rows
 
@@ -228,7 +251,7 @@ def build_report(
     for name in baselines:
         wrong_version[f"{name}_mean"] = global_by_method[name].get("wrong_version_rate", 0.0)
 
-    return {
+    report: dict[str, Any] = {
         "harness_version": harness_manifest.get("version"),
         "pilot": True,
         "corpora_run": len(corpus_reports),
@@ -239,6 +262,31 @@ def build_report(
         "latency": latency,
         "wrong_version": wrong_version,
     }
+
+    gen_methods = list(generate_methods or [])
+    if gen_methods:
+        answer_keys = (
+            "answer_correctness",
+            "answer_citation_correct",
+            "hallucination_rate",
+            "grounded_answer_rate",
+        )
+        generation_global: dict[str, dict[str, float]] = {}
+        for name in gen_methods:
+            rows = []
+            for corp in corpus_reports:
+                for case in corp.get("cases") or []:
+                    method_metrics = (case.get("methods") or {}).get(name) or {}
+                    if "answer_correctness" in method_metrics:
+                        rows.append({k: method_metrics[k] for k in answer_keys})
+            generation_global[name] = aggregate_metric_rows(rows) if rows else {}
+        report["generation"] = {
+            "mode": harness_manifest.get("_generate_mode", "extractive"),
+            "methods": gen_methods,
+            "global": generation_global,
+        }
+
+    return report
 
 
 def main() -> int:
@@ -261,20 +309,42 @@ def main() -> int:
     parser.add_argument("--pool-k", type=int, default=20)
     parser.add_argument("--json-only", action="store_true")
     parser.add_argument(
+        "--generate",
+        action="store_true",
+        help="Score answer behavior from expected_answer + citation qrel fields",
+    )
+    parser.add_argument(
+        "--generate-mode",
+        choices=("extractive", "llm"),
+        default="extractive",
+        help="How to compose answers from retrieved hits (default: extractive, no LLM cost)",
+    )
+    parser.add_argument(
+        "--generate-method",
+        action="append",
+        dest="generate_methods",
+        help="Retrieval methods to evaluate for answers (repeatable; default: swag, hybrid_rrf)",
+    )
+    parser.add_argument(
         "--results-out",
         type=Path,
         default=HARNESS_ROOT / "results" / f"run-{uuid.uuid4().hex[:8]}.json",
     )
     args = parser.parse_args()
 
+    generate_methods = args.generate_methods or ["swag", "hybrid_rrf"]
+
     for path in (str(BENCHMARKS), str(ROOT / "ingestion" / "src"), str(args.harness_root)):
         if path not in sys.path:
             sys.path.insert(0, path)
 
     from eval_harness.index_builder import build_harness_index, load_json
+    from eval_harness.answer_metrics import check_answer_thresholds
     from eval_harness.thresholds import check_swag_thresholds
 
     harness_manifest = load_json(args.harness_root / "manifest.json")
+    if args.generate:
+        harness_manifest["_generate_mode"] = args.generate_mode
     baselines = list(harness_manifest.get("baselines") or [])
     indexed, embedder, bm25_by_topic = build_harness_index(
         harness_manifest,
@@ -301,34 +371,59 @@ def main() -> int:
                 bm25_by_topic=bm25_by_topic,
                 baselines=baselines,
                 pool_k=args.pool_k,
+                generate=args.generate,
+                generate_mode=args.generate_mode,
+                generate_methods=generate_methods if args.generate else None,
             )
         )
 
-    report = build_report(harness_manifest, corpus_reports, baselines=baselines)
+    report = build_report(
+        harness_manifest,
+        corpus_reports,
+        baselines=baselines,
+        generate_methods=generate_methods if args.generate else None,
+    )
     thresholds = dict(harness_manifest.get("thresholds") or {})
     thresholds.setdefault("compare_baseline", "hybrid_rrf")
     thresholds.setdefault("primary_metric", "recall_at_k")
     report["thresholds"] = check_swag_thresholds(report, thresholds=thresholds)
+
+    exit_code = 0 if report["thresholds"]["verdict"] == "PASS" else 1
+    if args.generate:
+        answer_thresholds = dict(harness_manifest.get("answer_thresholds") or {})
+        report["answer_thresholds"] = check_answer_thresholds(
+            report, thresholds=answer_thresholds
+        )
+        if report["answer_thresholds"]["verdict"] != "PASS":
+            exit_code = 1
 
     args.results_out.parent.mkdir(parents=True, exist_ok=True)
     args.results_out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     if not args.json_only:
         print(report["thresholds"]["report_text"], file=sys.stderr)
+        if args.generate and report.get("answer_thresholds"):
+            print(file=sys.stderr)
+            print(report["answer_thresholds"]["report_text"], file=sys.stderr)
         print(file=sys.stderr)
         for corpus_id, block in report["by_corpus"].items():
             swag = block["methods"].get("swag", {})
             hybrid = block["methods"].get("hybrid_rrf", {})
-            print(
+            line = (
                 f"{corpus_id}: recall@5 swag={swag.get('recall_at_k', 0):.3f} "
-                f"hybrid_rrf={hybrid.get('recall_at_k', 0):.3f}",
-                file=sys.stderr,
+                f"hybrid_rrf={hybrid.get('recall_at_k', 0):.3f}"
             )
+            if args.generate:
+                line += (
+                    f" | answer swag={swag.get('answer_correctness', 0):.2f} "
+                    f"hybrid={hybrid.get('answer_correctness', 0):.2f}"
+                )
+            print(line, file=sys.stderr)
         print(f"Results: {args.results_out}", file=sys.stderr)
 
     json.dump(report, sys.stdout, indent=2)
     sys.stdout.write("\n")
-    return 0 if report["thresholds"]["verdict"] == "PASS" else 1
+    return exit_code
 
 
 if __name__ == "__main__":
