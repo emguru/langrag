@@ -29,8 +29,8 @@ def should_rerank_with_swag(hits: list[dict], *, query: str) -> tuple[bool, str]
     if margin <= epsilon:
         return True, "vector_margin_ambiguous"
 
-    if top_kind == "body" and margin > epsilon:
-        return False, "clear_body_winner"
+    if len(hits) >= 2:
+        return True, "multi_candidate_filter"
 
     return True, "default_rerank"
 

@@ -27,6 +27,18 @@ def test_classify_chunk_kinds():
     )
 
 
+def test_classify_readme_chrome_as_nav():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    chrome = (root / "fixtures/corpus/validation-chrome/langchain-rag-chrome.md").read_text()
+    py_chrome = (root / "fixtures/corpus/validation-chrome/python-readme-chrome.md").read_text()
+    body = (root / "fixtures/corpus/validation-chrome/langchain-rag-body.md").read_text()
+    assert classify_chunk_kind(chrome) == "nav"
+    assert classify_chunk_kind(py_chrome) == "nav"
+    assert classify_chunk_kind(body) == "body"
+
+
 def test_noise_gate_drops_distant_low_swag_hits():
     top = 0.505
     assert not passes_noise_gate({"swag_score": 0.0, "vector_score": 0.10}, top_vector=top)
@@ -36,6 +48,18 @@ def test_noise_gate_keeps_leader_band_or_semantic_match():
     top = 0.505
     assert passes_noise_gate({"swag_score": 0.15, "vector_score": 0.396}, top_vector=top)
     assert passes_noise_gate({"swag_score": 0.0, "vector_score": 0.40}, top_vector=top)
+
+
+def test_noise_gate_drops_chrome_kinds_without_swag_floor():
+    top = 0.505
+    assert not passes_noise_gate(
+        {"swag_score": 0.0, "vector_score": 0.50, "chunk_kind": "nav"},
+        top_vector=top,
+    )
+    assert not passes_noise_gate(
+        {"swag_score": 0.0, "vector_score": 0.50, "chunk_kind": "boilerplate"},
+        top_vector=top,
+    )
 
 
 def test_is_rag_useful_rerank_promotes_substance(monkeypatch):

@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     swag_min_score_threshold: float = 0.08
     swag_noise_vector_margin: float = 0.04
     # Without SWAG floor, vector must be within this ratio of the top hit.
-    swag_noise_relative_vector_ratio: float = 0.78
+    swag_noise_relative_vector_ratio: float = 0.62
     # Second-pass ratio when strict gate returns fewer than top_k hits.
     swag_noise_backfill_ratio: float = 0.58
     swag_noise_backfill_enabled: bool = False
@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     swag_ungrounded_term_weight_multiplier: float = 0.35
     swag_grounding_min_token_ratio: float = 0.5
     swag_fuzzy_min_token_len: int = 4
-    swag_gated_rerank: bool = True
+    swag_gated_rerank: bool = False
     structural_split: bool = True
 
 

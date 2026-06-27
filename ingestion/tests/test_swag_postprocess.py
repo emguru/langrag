@@ -59,4 +59,4 @@ def test_backfill_adds_hits_when_strict_gate_is_sparse(monkeypatch):
 
 def test_noise_gate_keeps_near_top_vector():
     assert passes_noise_gate({"swag_score": 0.02, "vector_score": 0.59}, top_vector=0.60)
-    assert not passes_noise_gate({"swag_score": 0.02, "vector_score": 0.38}, top_vector=0.60)
+    assert not passes_noise_gate({"swag_score": 0.02, "vector_score": 0.35}, top_vector=0.60)
