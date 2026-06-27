@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "description": "Mixed garbage — duplicates, contradictions, partial extracts, acronym noise.",
+  "corpus_id": "mixed-garbage",
+  "topic": "eval-garbage",
+  "fixtures": [
+    {"seed_key": "eval-harness/mixed-garbage/README.old.bak.md", "topic": "eval-garbage", "path": "mixed-garbage/README.old.bak.md"},
+    {"seed_key": "eval-harness/mixed-garbage/contradictory-refund-policy-a.md", "topic": "eval-garbage", "path": "mixed-garbage/contradictory-refund-policy-a.md"},
+    {"seed_key": "eval-harness/mixed-garbage/contradictory-refund-policy-b.md", "topic": "eval-garbage", "path": "mixed-garbage/contradictory-refund-policy-b.md"},
+    {"seed_key": "eval-harness/mixed-garbage/doc(1)-copy.md", "topic": "eval-garbage", "path": "mixed-garbage/doc(1)-copy.md"},
+    {"seed_key": "eval-harness/mixed-garbage/partial-extract-page3-only.md", "topic": "eval-garbage", "path": "mixed-garbage/partial-extract-page3-only.md"},
+    {"seed_key": "eval-harness/mixed-garbage/acronym-soup-internal-memo.md", "topic": "eval-garbage", "path": "mixed-garbage/acronym-soup-internal-memo.md"},
+    {"seed_key": "eval-harness/mixed-garbage/random-meeting-notes-shoes.md", "topic": "eval-garbage", "path": "mixed-garbage/random-meeting-notes-shoes.md"}
+  ]
+}

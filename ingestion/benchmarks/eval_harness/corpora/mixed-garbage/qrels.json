@@ -1,0 +1,378 @@
+{
+  "version": 1,
+  "description": "Pilot qrels (20/100 target) \u2014 mixed-garbage",
+  "corpus_id": "mixed-garbage",
+  "topic": "eval-garbage",
+  "top_k": 5,
+  "pilot": true,
+  "target_cases": 100,
+  "category_mix_target": {
+    "direct": 40,
+    "synonym": 20,
+    "acronym": 20,
+    "version_trap": 10,
+    "cross_doc": 10
+  },
+  "cases": [
+    {
+      "id": "garb-direct-01",
+      "category": "direct",
+      "query": "45 day return receipt unworn policy B",
+      "topic": "eval-garbage",
+      "expected_answer": "Policy B allows 45-day returns with receipt.",
+      "gold_source_document": "eval-harness/mixed-garbage/contradictory-refund-policy-b.md",
+      "gold_source_chunk_contains": [
+        "45-day"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/contradictory-refund-policy-b.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/mixed-garbage/contradictory-refund-policy-a.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/mixed-garbage/contradictory-refund-policy-a.md"
+      ]
+    },
+    {
+      "id": "garb-direct-02",
+      "category": "direct",
+      "query": "all sales final 7 days footwear policy A",
+      "topic": "eval-garbage",
+      "expected_answer": "Policy A says all sales final after 7 days.",
+      "gold_source_document": "eval-harness/mixed-garbage/contradictory-refund-policy-a.md",
+      "gold_source_chunk_contains": [
+        "All sales final"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/contradictory-refund-policy-a.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/mixed-garbage/contradictory-refund-policy-b.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/mixed-garbage/contradictory-refund-policy-b.md"
+      ]
+    },
+    {
+      "id": "garb-direct-03",
+      "category": "direct",
+      "query": "duplicate CMS export return policy filename",
+      "topic": "eval-garbage",
+      "expected_answer": "Duplicate export with wrong metadata.",
+      "gold_source_document": "eval-harness/mixed-garbage/doc(1)-copy.md",
+      "gold_source_chunk_contains": [
+        "doc(1)-copy"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/doc(1)-copy.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-direct-04",
+      "category": "direct",
+      "query": "partial PDF page 3 HIPAA BAA excerpt",
+      "topic": "eval-garbage",
+      "expected_answer": "Partial extract mentions BAA but truncated table.",
+      "gold_source_document": "eval-harness/mixed-garbage/partial-extract-page3-only.md",
+      "gold_source_chunk_contains": [
+        "BAA required"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/partial-extract-page3-only.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-direct-05",
+      "category": "direct",
+      "query": "README.old.bak authoritative?",
+      "topic": "eval-garbage",
+      "expected_answer": "Explicitly not authoritative.",
+      "gold_source_document": "eval-harness/mixed-garbage/README.old.bak.md",
+      "gold_source_chunk_contains": [
+        "Not authoritative"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/README.old.bak.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-direct-06",
+      "category": "direct",
+      "query": "random meeting notes retrieval noise",
+      "topic": "eval-garbage",
+      "expected_answer": "Meeting notes marked do not use for benchmarks.",
+      "gold_source_document": "eval-harness/mixed-garbage/random-meeting-notes-shoes.md",
+      "gold_source_chunk_contains": [
+        "Do not use"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/random-meeting-notes-shoes.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-direct-07",
+      "category": "direct",
+      "query": "acronym soup memo policy document?",
+      "topic": "eval-garbage",
+      "expected_answer": "Not a policy document.",
+      "gold_source_document": "eval-harness/mixed-garbage/acronym-soup-internal-memo.md",
+      "gold_source_chunk_contains": [
+        "Not a policy"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/acronym-soup-internal-memo.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-direct-08",
+      "category": "direct",
+      "query": "restocking fee 15% furniture policy B",
+      "topic": "eval-garbage",
+      "expected_answer": "Policy B includes 15% restocking on furniture.",
+      "gold_source_document": "eval-harness/mixed-garbage/contradictory-refund-policy-b.md",
+      "gold_source_chunk_contains": [
+        "15%"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/contradictory-refund-policy-b.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-synonym-01",
+      "category": "synonym",
+      "query": "customer success refund window forty five days",
+      "topic": "eval-garbage",
+      "expected_answer": "45-day returns per Policy B.",
+      "gold_source_document": "eval-harness/mixed-garbage/contradictory-refund-policy-b.md",
+      "gold_source_chunk_contains": [
+        "45-day"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/contradictory-refund-policy-b.md"
+      ],
+      "acceptable_alternate_terms": [
+        "45 day"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-synonym-02",
+      "category": "synonym",
+      "query": "finance draft no returns footwear week",
+      "topic": "eval-garbage",
+      "expected_answer": "Policy A 7-day limit.",
+      "gold_source_document": "eval-harness/mixed-garbage/contradictory-refund-policy-a.md",
+      "gold_source_chunk_contains": [
+        "7 days"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/contradictory-refund-policy-a.md"
+      ],
+      "acceptable_alternate_terms": [
+        "all sales final"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-synonym-03",
+      "category": "synonym",
+      "query": "legacy export broken encoding refund",
+      "topic": "eval-garbage",
+      "expected_answer": "Broken README mentions 30 days inconsistently.",
+      "gold_source_document": "eval-harness/mixed-garbage/README.old.bak.md",
+      "gold_source_chunk_contains": [
+        "Refund window 30 days"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/README.old.bak.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-synonym-04",
+      "category": "synonym",
+      "query": "truncated compliance paragraph full documents",
+      "topic": "eval-garbage",
+      "expected_answer": "Partial extract advises using full sources.",
+      "gold_source_document": "eval-harness/mixed-garbage/partial-extract-page3-only.md",
+      "gold_source_chunk_contains": [
+        "Use full source"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/partial-extract-page3-only.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-acronym-01",
+      "category": "acronym",
+      "query": "PHI IAM VPC BAA same memo",
+      "topic": "eval-garbage",
+      "expected_answer": "Acronym soup lists PHI/IAM/VPC/BAA without definitions.",
+      "gold_source_document": "eval-harness/mixed-garbage/acronym-soup-internal-memo.md",
+      "gold_source_chunk_contains": [
+        "PHI"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/acronym-soup-internal-memo.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-acronym-02",
+      "category": "acronym",
+      "query": "TF vs Terraform vs tfvars training note",
+      "topic": "eval-garbage",
+      "expected_answer": "Training note on TF/Terraform/tfvars confusion.",
+      "gold_source_document": "eval-harness/mixed-garbage/acronym-soup-internal-memo.md",
+      "gold_source_chunk_contains": [
+        "TF vs Terraform"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/acronym-soup-internal-memo.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-acronym-03",
+      "category": "acronym",
+      "query": "RMA-RET-2024 mentioned broken readme",
+      "topic": "eval-garbage",
+      "expected_answer": "Random SKU/RMA mentions in broken README.",
+      "gold_source_document": "eval-harness/mixed-garbage/README.old.bak.md",
+      "gold_source_chunk_contains": [
+        "RMA-RET-2024"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/README.old.bak.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-acronym-04",
+      "category": "acronym",
+      "query": "VPC Virtual Private truncated table partial",
+      "topic": "eval-garbage",
+      "expected_answer": "Partial table truncates VPC definition.",
+      "gold_source_document": "eval-harness/mixed-garbage/partial-extract-page3-only.md",
+      "gold_source_chunk_contains": [
+        "Virtual Pr"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/partial-extract-page3-only.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-version-01",
+      "category": "version_trap",
+      "query": "30 day refund README legacy export",
+      "topic": "eval-garbage",
+      "expected_answer": "README 30-day claim contradicts Policy B 45-day.",
+      "gold_source_document": "eval-harness/mixed-garbage/contradictory-refund-policy-b.md",
+      "gold_source_chunk_contains": [
+        "45-day"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/contradictory-refund-policy-b.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/mixed-garbage/README.old.bak.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/mixed-garbage/README.old.bak.md"
+      ]
+    },
+    {
+      "id": "garb-version-02",
+      "category": "version_trap",
+      "query": "duplicate return policy copy authoritative",
+      "topic": "eval-garbage",
+      "expected_answer": "doc(1)-copy is duplicate not authoritative source.",
+      "gold_source_document": "eval-harness/mixed-garbage/contradictory-refund-policy-b.md",
+      "gold_source_chunk_contains": [
+        "45-day"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/contradictory-refund-policy-b.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/mixed-garbage/doc(1)-copy.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/mixed-garbage/doc(1)-copy.md"
+      ]
+    },
+    {
+      "id": "garb-cross-01",
+      "category": "cross_doc",
+      "query": "contradictory refund policies legal review 2022",
+      "topic": "eval-garbage",
+      "expected_answer": "Both policies note pending 2022 legal review.",
+      "gold_source_document": "eval-harness/mixed-garbage/contradictory-refund-policy-a.md",
+      "gold_source_chunk_contains": [
+        "legal review pending 2022"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/contradictory-refund-policy-a.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "garb-cross-02",
+      "category": "cross_doc",
+      "query": "meeting notes invoice cafeteria unrelated noise",
+      "topic": "eval-garbage",
+      "expected_answer": "Meeting mixes shoes, invoices, cafeteria \u2014 noise only.",
+      "gold_source_document": "eval-harness/mixed-garbage/random-meeting-notes-shoes.md",
+      "gold_source_chunk_contains": [
+        "three-way matching"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/mixed-garbage/random-meeting-notes-shoes.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    }
+  ]
+}

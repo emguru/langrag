@@ -1,0 +1,394 @@
+{
+  "version": 1,
+  "description": "Pilot qrels (20/100 target) \u2014 retail-furniture",
+  "corpus_id": "retail-furniture",
+  "topic": "eval-retail",
+  "top_k": 5,
+  "pilot": true,
+  "target_cases": 100,
+  "category_mix_target": {
+    "direct": 40,
+    "synonym": 20,
+    "acronym": 20,
+    "version_trap": 10,
+    "cross_doc": 10
+  },
+  "cases": [
+    {
+      "id": "retail-direct-01",
+      "category": "direct",
+      "query": "How do you measure shoe size with a Brannock device?",
+      "topic": "eval-retail",
+      "expected_answer": "Stand on Brannock device and read length/width.",
+      "gold_source_document": "eval-harness/retail-furniture/shoe-sizing-guide-v2.md",
+      "gold_source_chunk_contains": [
+        "Brannock device"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v2.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v1-deprecated.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v1-deprecated.md"
+      ]
+    },
+    {
+      "id": "retail-direct-02",
+      "category": "direct",
+      "query": "What is the furniture return window in 2024?",
+      "topic": "eval-retail",
+      "expected_answer": "45 days with receipt for unworn items.",
+      "gold_source_document": "eval-harness/retail-furniture/return-policy-2024.md",
+      "gold_source_chunk_contains": [
+        "45 days"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/return-policy-2024.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/retail-furniture/duplicate-return-policy-copy.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/retail-furniture/duplicate-return-policy-copy.md"
+      ]
+    },
+    {
+      "id": "retail-direct-03",
+      "category": "direct",
+      "query": "restocking fee sectional sofa",
+      "topic": "eval-retail",
+      "expected_answer": "15% restocking fee on sectional sofas.",
+      "gold_source_document": "eval-harness/retail-furniture/return-policy-2024.md",
+      "gold_source_chunk_contains": [
+        "Restocking fee",
+        "15%"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/return-policy-2024.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "retail-direct-04",
+      "category": "direct",
+      "query": "running shoes half size guidance",
+      "topic": "eval-retail",
+      "expected_answer": "Often half size up for toe box clearance.",
+      "gold_source_document": "eval-harness/retail-furniture/shoe-sizing-guide-v2.md",
+      "gold_source_chunk_contains": [
+        "half size"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v2.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "retail-direct-05",
+      "category": "direct",
+      "query": "couch assembly hex key M6",
+      "topic": "eval-retail",
+      "expected_answer": "Use M6 hex key from bag B for chaise bracket.",
+      "gold_source_document": "eval-harness/retail-furniture/couch-assembly-FINAL.pdf.txt",
+      "gold_source_chunk_contains": [
+        "hex key M6"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/couch-assembly-FINAL.pdf.txt"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "retail-direct-06",
+      "category": "direct",
+      "query": "width codes narrow standard wide shoes",
+      "topic": "eval-retail",
+      "expected_answer": "B narrow, D standard, 2E wide.",
+      "gold_source_document": "eval-harness/retail-furniture/shoe-sizing-guide-v2.md",
+      "gold_source_chunk_contains": [
+        "Width codes"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v2.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "retail-direct-07",
+      "category": "direct",
+      "query": "final sale exclusions returns",
+      "topic": "eval-retail",
+      "expected_answer": "Final sale and customized upholstery excluded.",
+      "gold_source_document": "eval-harness/retail-furniture/return-policy-2024.md",
+      "gold_source_chunk_contains": [
+        "final sale"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/return-policy-2024.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "retail-direct-08",
+      "category": "direct",
+      "query": "measure both feet larger size",
+      "topic": "eval-retail",
+      "expected_answer": "Measure both feet; order the larger size.",
+      "gold_source_document": "eval-harness/retail-furniture/shoe-sizing-guide-v2.md",
+      "gold_source_chunk_contains": [
+        "Measure both feet"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v2.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "retail-synonym-01",
+      "category": "synonym",
+      "query": "footwear exchange policy duration",
+      "topic": "eval-retail",
+      "expected_answer": "45-day return window.",
+      "gold_source_document": "eval-harness/retail-furniture/return-policy-2024.md",
+      "gold_source_chunk_contains": [
+        "45 days"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/return-policy-2024.md"
+      ],
+      "acceptable_alternate_terms": [
+        "return window",
+        "exchange"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "retail-synonym-02",
+      "category": "synonym",
+      "query": "sneaker toe box sizing recommendation",
+      "topic": "eval-retail",
+      "expected_answer": "Half size up for running shoes.",
+      "gold_source_document": "eval-harness/retail-furniture/shoe-sizing-guide-v2.md",
+      "gold_source_chunk_contains": [
+        "toe box"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v2.md"
+      ],
+      "acceptable_alternate_terms": [
+        "running shoes",
+        "athletic"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "retail-synonym-03",
+      "category": "synonym",
+      "query": "sectional couch return surcharge",
+      "topic": "eval-retail",
+      "expected_answer": "15% restocking fee.",
+      "gold_source_document": "eval-harness/retail-furniture/return-policy-2024.md",
+      "gold_source_chunk_contains": [
+        "15%"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/return-policy-2024.md"
+      ],
+      "acceptable_alternate_terms": [
+        "restocking fee"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "retail-synonym-04",
+      "category": "synonym",
+      "query": "Brannock foot measurement procedure",
+      "topic": "eval-retail",
+      "expected_answer": "Use Brannock device while standing.",
+      "gold_source_document": "eval-harness/retail-furniture/shoe-sizing-guide-v2.md",
+      "gold_source_chunk_contains": [
+        "Brannock"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v2.md"
+      ],
+      "acceptable_alternate_terms": [
+        "measure foot length"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "retail-acronym-01",
+      "category": "acronym",
+      "query": "RMA-RET-2024 online label",
+      "topic": "eval-retail",
+      "expected_answer": "Prepaid label RMA-RET-2024 for online orders.",
+      "gold_source_document": "eval-harness/retail-furniture/return-policy-2024.md",
+      "gold_source_chunk_contains": [
+        "RMA-RET-2024"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/return-policy-2024.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "retail-acronym-02",
+      "category": "acronym",
+      "query": "SKU ATH-9912 sizing info",
+      "topic": "eval-retail",
+      "expected_answer": "Catalog SKU has no sizing guidance \u2014 trap doc.",
+      "gold_source_document": "eval-harness/retail-furniture/athletic-footwear-catalog.md",
+      "gold_source_chunk_contains": [
+        "ATH-9912"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/athletic-footwear-catalog.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/retail-furniture/athletic-footwear-catalog.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/retail-furniture/athletic-footwear-catalog.md"
+      ]
+    },
+    {
+      "id": "retail-acronym-03",
+      "category": "acronym",
+      "query": "HX-4420 assembly hardware bag B",
+      "topic": "eval-retail",
+      "expected_answer": "HX-4420 sectional uses bag B hardware.",
+      "gold_source_document": "eval-harness/retail-furniture/couch-assembly-FINAL.pdf.txt",
+      "gold_source_chunk_contains": [
+        "HX-4420",
+        "bag B"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/couch-assembly-FINAL.pdf.txt"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "retail-acronym-04",
+      "category": "acronym",
+      "query": "2E width code meaning",
+      "topic": "eval-retail",
+      "expected_answer": "2E is wide width code.",
+      "gold_source_document": "eval-harness/retail-furniture/shoe-sizing-guide-v2.md",
+      "gold_source_chunk_contains": [
+        "2E"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v2.md"
+      ],
+      "acceptable_alternate_terms": [
+        "wide"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "retail-version-01",
+      "category": "version_trap",
+      "query": "subtract 1.5 sizes EU to US running shoes",
+      "topic": "eval-retail",
+      "expected_answer": "Deprecated v1 advice \u2014 use v2 Brannock guidance.",
+      "gold_source_document": "eval-harness/retail-furniture/shoe-sizing-guide-v2.md",
+      "gold_source_chunk_contains": [
+        "half size"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v2.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v1-deprecated.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v1-deprecated.md"
+      ]
+    },
+    {
+      "id": "retail-version-02",
+      "category": "version_trap",
+      "query": "add two full sizes for running shoes obsolete",
+      "topic": "eval-retail",
+      "expected_answer": "Obsolete v1 rule; v2 recommends half size up.",
+      "gold_source_document": "eval-harness/retail-furniture/shoe-sizing-guide-v2.md",
+      "gold_source_chunk_contains": [
+        "half size up"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v2.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v1-deprecated.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v1-deprecated.md"
+      ]
+    },
+    {
+      "id": "retail-cross-01",
+      "category": "cross_doc",
+      "query": "return policy and shoe sizing version reference",
+      "topic": "eval-retail",
+      "expected_answer": "Sizing v2 references return-policy-2024 for exchanges.",
+      "gold_source_document": "eval-harness/retail-furniture/shoe-sizing-guide-v2.md",
+      "gold_source_chunk_contains": [
+        "return-policy-2024"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/shoe-sizing-guide-v2.md"
+      ],
+      "acceptable_alternate_terms": [
+        "See return-policy"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "retail-cross-02",
+      "category": "cross_doc",
+      "query": "assembly partial PDF missing pages warranty",
+      "topic": "eval-retail",
+      "expected_answer": "Partial extract missing pages 5-7; warranty link broken.",
+      "gold_source_document": "eval-harness/retail-furniture/couch-assembly-FINAL.pdf.txt",
+      "gold_source_chunk_contains": [
+        "Missing page"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/retail-furniture/couch-assembly-FINAL.pdf.txt"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    }
+  ]
+}

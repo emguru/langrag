@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "description": "Terraform / cloud — version traps, acronyms, cross-module references.",
+  "corpus_id": "terraform-cloud",
+  "topic": "eval-terraform",
+  "fixtures": [
+    {"seed_key": "eval-harness/terraform-cloud/vpc-module-readme.md", "topic": "eval-terraform", "path": "terraform-cloud/vpc-module-readme.md"},
+    {"seed_key": "eval-harness/terraform-cloud/iam-policy-patterns.md", "topic": "eval-terraform", "path": "terraform-cloud/iam-policy-patterns.md"},
+    {"seed_key": "eval-harness/terraform-cloud/terraform-1.5-upgrade-notes.md", "topic": "eval-terraform", "path": "terraform-cloud/terraform-1.5-upgrade-notes.md"},
+    {"seed_key": "eval-harness/terraform-cloud/terraform-1.2-legacy-docs.md", "topic": "eval-terraform", "path": "terraform-cloud/terraform-1.2-legacy-docs.md"},
+    {"seed_key": "eval-harness/terraform-cloud/eks-cluster-module.md", "topic": "eval-terraform", "path": "terraform-cloud/eks-cluster-module.md"},
+    {"seed_key": "eval-harness/terraform-cloud/acronym-glossary.md", "topic": "eval-terraform", "path": "terraform-cloud/acronym-glossary.md"}
+  ]
+}

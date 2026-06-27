@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "description": "Medical / admin policy — HIPAA, PHI, BAA, outdated infection control.",
+  "corpus_id": "medical-admin",
+  "topic": "eval-medical",
+  "fixtures": [
+    {"seed_key": "eval-harness/medical-admin/hipaa-admin-safeguards.md", "topic": "eval-medical", "path": "medical-admin/hipaa-admin-safeguards.md"},
+    {"seed_key": "eval-harness/medical-admin/phi-handling-procedure.md", "topic": "eval-medical", "path": "medical-admin/phi-handling-procedure.md"},
+    {"seed_key": "eval-harness/medical-admin/baa-requirements.md", "topic": "eval-medical", "path": "medical-admin/baa-requirements.md"},
+    {"seed_key": "eval-harness/medical-admin/outdated-infection-control-2019.md", "topic": "eval-medical", "path": "medical-admin/outdated-infection-control-2019.md"},
+    {"seed_key": "eval-harness/medical-admin/employee-health-policy.md", "topic": "eval-medical", "path": "medical-admin/employee-health-policy.md"}
+  ]
+}

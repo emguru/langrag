@@ -1,0 +1,378 @@
+{
+  "version": 1,
+  "description": "Pilot qrels (20/100 target) \u2014 medical-admin",
+  "corpus_id": "medical-admin",
+  "topic": "eval-medical",
+  "top_k": 5,
+  "pilot": true,
+  "target_cases": 100,
+  "category_mix_target": {
+    "direct": 40,
+    "synonym": 20,
+    "acronym": 20,
+    "version_trap": 10,
+    "cross_doc": 10
+  },
+  "cases": [
+    {
+      "id": "med-direct-01",
+      "category": "direct",
+      "query": "HIPAA security officer requirement",
+      "topic": "eval-medical",
+      "expected_answer": "Designate a security officer.",
+      "gold_source_document": "eval-harness/medical-admin/hipaa-admin-safeguards.md",
+      "gold_source_chunk_contains": [
+        "security officer"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/hipaa-admin-safeguards.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-direct-02",
+      "category": "direct",
+      "query": "PHI minimum necessary access rule",
+      "topic": "eval-medical",
+      "expected_answer": "Access only PHI needed for current task.",
+      "gold_source_document": "eval-harness/medical-admin/phi-handling-procedure.md",
+      "gold_source_chunk_contains": [
+        "Minimum necessary"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/phi-handling-procedure.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-direct-03",
+      "category": "direct",
+      "query": "BAA before vendor PHI access",
+      "topic": "eval-medical",
+      "expected_answer": "Execute BAA before granting vendor access.",
+      "gold_source_document": "eval-harness/medical-admin/baa-requirements.md",
+      "gold_source_chunk_contains": [
+        "before access"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/baa-requirements.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-direct-04",
+      "category": "direct",
+      "query": "audit log retention HIPAA years",
+      "topic": "eval-medical",
+      "expected_answer": "Retain audit trails six years.",
+      "gold_source_document": "eval-harness/medical-admin/hipaa-admin-safeguards.md",
+      "gold_source_chunk_contains": [
+        "six years"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/hipaa-admin-safeguards.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-direct-05",
+      "category": "direct",
+      "query": "influenza vaccination patient facing staff",
+      "topic": "eval-medical",
+      "expected_answer": "Annual flu vaccine required for patient-facing roles.",
+      "gold_source_document": "eval-harness/medical-admin/employee-health-policy.md",
+      "gold_source_chunk_contains": [
+        "influenza vaccination"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/employee-health-policy.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-direct-06",
+      "category": "direct",
+      "query": "PHI transmission encrypted email",
+      "topic": "eval-medical",
+      "expected_answer": "Use encrypted email or secure transfer.",
+      "gold_source_document": "eval-harness/medical-admin/phi-handling-procedure.md",
+      "gold_source_chunk_contains": [
+        "encrypted email"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/phi-handling-procedure.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-direct-07",
+      "category": "direct",
+      "query": "BAA breach notification days",
+      "topic": "eval-medical",
+      "expected_answer": "Breach notification within 60 days.",
+      "gold_source_document": "eval-harness/medical-admin/baa-requirements.md",
+      "gold_source_chunk_contains": [
+        "60 days"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/baa-requirements.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-direct-08",
+      "category": "direct",
+      "query": "TB screening hire policy",
+      "topic": "eval-medical",
+      "expected_answer": "TB screening at hire and after exposure.",
+      "gold_source_document": "eval-harness/medical-admin/employee-health-policy.md",
+      "gold_source_chunk_contains": [
+        "TB screening"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/employee-health-policy.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-synonym-01",
+      "category": "synonym",
+      "query": "protected health information examples list",
+      "topic": "eval-medical",
+      "expected_answer": "PHI includes names, MRNs, billing identifiers.",
+      "gold_source_document": "eval-harness/medical-admin/phi-handling-procedure.md",
+      "gold_source_chunk_contains": [
+        "medical record numbers"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/phi-handling-procedure.md"
+      ],
+      "acceptable_alternate_terms": [
+        "PHI"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-synonym-02",
+      "category": "synonym",
+      "query": "business associate agreement vendor disabled accounts",
+      "topic": "eval-medical",
+      "expected_answer": "Accounts disabled without signed BAA.",
+      "gold_source_document": "eval-harness/medical-admin/baa-requirements.md",
+      "gold_source_chunk_contains": [
+        "remain disabled"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/baa-requirements.md"
+      ],
+      "acceptable_alternate_terms": [
+        "BAA"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-synonym-03",
+      "category": "synonym",
+      "query": "automatic logoff access control safeguard",
+      "topic": "eval-medical",
+      "expected_answer": "Automatic logoff is required control.",
+      "gold_source_document": "eval-harness/medical-admin/hipaa-admin-safeguards.md",
+      "gold_source_chunk_contains": [
+        "automatic logoff"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/hipaa-admin-safeguards.md"
+      ],
+      "acceptable_alternate_terms": [
+        "access control"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-synonym-04",
+      "category": "synonym",
+      "query": "N95 fit testing high risk units",
+      "topic": "eval-medical",
+      "expected_answer": "Fit testing for N95 in high-risk units.",
+      "gold_source_document": "eval-harness/medical-admin/employee-health-policy.md",
+      "gold_source_chunk_contains": [
+        "Fit testing"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/employee-health-policy.md"
+      ],
+      "acceptable_alternate_terms": [
+        "respirators"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-acronym-01",
+      "category": "acronym",
+      "query": "PHI acronym definition",
+      "topic": "eval-medical",
+      "expected_answer": "Protected Health Information.",
+      "gold_source_document": "eval-harness/medical-admin/phi-handling-procedure.md",
+      "gold_source_chunk_contains": [
+        "Protected Health Information"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/phi-handling-procedure.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-acronym-02",
+      "category": "acronym",
+      "query": "BAA acronym HIPAA vendor",
+      "topic": "eval-medical",
+      "expected_answer": "Business Associate Agreement.",
+      "gold_source_document": "eval-harness/medical-admin/baa-requirements.md",
+      "gold_source_chunk_contains": [
+        "Business Associate Agreement"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/baa-requirements.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-acronym-03",
+      "category": "acronym",
+      "query": "ePHI audit controls HIPAA",
+      "topic": "eval-medical",
+      "expected_answer": "Audit controls for systems with ePHI.",
+      "gold_source_document": "eval-harness/medical-admin/hipaa-admin-safeguards.md",
+      "gold_source_chunk_contains": [
+        "ePHI"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/hipaa-admin-safeguards.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-acronym-04",
+      "category": "acronym",
+      "query": "CDC hand hygiene alcohol rub outdated doc",
+      "topic": "eval-medical",
+      "expected_answer": "2019 infection doc outdated on hand hygiene.",
+      "gold_source_document": "eval-harness/medical-admin/employee-health-policy.md",
+      "gold_source_chunk_contains": [
+        "Fit testing"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/employee-health-policy.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/medical-admin/outdated-infection-control-2019.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/medical-admin/outdated-infection-control-2019.md"
+      ]
+    },
+    {
+      "id": "med-version-01",
+      "category": "version_trap",
+      "query": "24-hour influenza room quarantine 2019 policy",
+      "topic": "eval-medical",
+      "expected_answer": "2019 isolation duration superseded.",
+      "gold_source_document": "eval-harness/medical-admin/employee-health-policy.md",
+      "gold_source_chunk_contains": [
+        "influenza"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/employee-health-policy.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/medical-admin/outdated-infection-control-2019.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/medical-admin/outdated-infection-control-2019.md"
+      ]
+    },
+    {
+      "id": "med-version-02",
+      "category": "version_trap",
+      "query": "soap and water only hand hygiene archived",
+      "topic": "eval-medical",
+      "expected_answer": "Archived infection control soap-only guidance obsolete.",
+      "gold_source_document": "eval-harness/medical-admin/hipaa-admin-safeguards.md",
+      "gold_source_chunk_contains": [
+        "Audit controls"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/hipaa-admin-safeguards.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/medical-admin/outdated-infection-control-2019.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/medical-admin/outdated-infection-control-2019.md"
+      ]
+    },
+    {
+      "id": "med-cross-01",
+      "category": "cross_doc",
+      "query": "employee health HIPAA logging coordination",
+      "topic": "eval-medical",
+      "expected_answer": "Employee health coordinates with HIPAA admin safeguards logging.",
+      "gold_source_document": "eval-harness/medical-admin/employee-health-policy.md",
+      "gold_source_chunk_contains": [
+        "HIPAA admin safeguards"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/employee-health-policy.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "med-cross-02",
+      "category": "cross_doc",
+      "query": "BAA subprocessors PHI procedure alignment",
+      "topic": "eval-medical",
+      "expected_answer": "BAA requires subcontractor flow-down aligned with PHI procedure.",
+      "gold_source_document": "eval-harness/medical-admin/baa-requirements.md",
+      "gold_source_chunk_contains": [
+        "subcontractor"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/medical-admin/baa-requirements.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    }
+  ]
+}

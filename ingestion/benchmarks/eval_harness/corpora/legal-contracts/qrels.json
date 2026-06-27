@@ -1,0 +1,376 @@
+{
+  "version": 1,
+  "description": "Pilot qrels (20/100 target) \u2014 legal-contracts",
+  "corpus_id": "legal-contracts",
+  "topic": "eval-legal",
+  "top_k": 5,
+  "pilot": true,
+  "target_cases": 100,
+  "category_mix_target": {
+    "direct": 40,
+    "synonym": 20,
+    "acronym": 20,
+    "version_trap": 10,
+    "cross_doc": 10
+  },
+  "cases": [
+    {
+      "id": "legal-direct-01",
+      "category": "direct",
+      "query": "MSA v3 liability cap twelve months fees",
+      "topic": "eval-legal",
+      "expected_answer": "Cap at fees paid in prior 12 months.",
+      "gold_source_document": "eval-harness/legal-contracts/msa-template-v3.md",
+      "gold_source_chunk_contains": [
+        "twelve (12) months"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/msa-template-v3.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-direct-02",
+      "category": "direct",
+      "query": "governing law MSA v3",
+      "topic": "eval-legal",
+      "expected_answer": "Delaware law; arbitration Wilmington.",
+      "gold_source_document": "eval-harness/legal-contracts/msa-template-v3.md",
+      "gold_source_chunk_contains": [
+        "Delaware"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/msa-template-v3.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-direct-03",
+      "category": "direct",
+      "query": "DPA subprocessor notice period",
+      "topic": "eval-legal",
+      "expected_answer": "30-day notice for subprocessor changes.",
+      "gold_source_document": "eval-harness/legal-contracts/data-processing-addendum.md",
+      "gold_source_chunk_contains": [
+        "30-day"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/data-processing-addendum.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-direct-04",
+      "category": "direct",
+      "query": "vendor checklist MSA version required",
+      "topic": "eval-legal",
+      "expected_answer": "Verify MSA v3 not archived v1.",
+      "gold_source_document": "eval-harness/legal-contracts/vendor-contract-checklist.md",
+      "gold_source_chunk_contains": [
+        "MSA version is v3"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/vendor-contract-checklist.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-direct-05",
+      "category": "direct",
+      "query": "liability carve-out gross negligence",
+      "topic": "eval-legal",
+      "expected_answer": "Carve-out for gross negligence or willful misconduct.",
+      "gold_source_document": "eval-harness/legal-contracts/liability-cap-clause.md",
+      "gold_source_chunk_contains": [
+        "gross negligence"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/liability-cap-clause.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-direct-06",
+      "category": "direct",
+      "query": "termination material breach cure period",
+      "topic": "eval-legal",
+      "expected_answer": "30 days written notice after cure period.",
+      "gold_source_document": "eval-harness/legal-contracts/msa-template-v3.md",
+      "gold_source_chunk_contains": [
+        "30 days"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/msa-template-v3.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-direct-07",
+      "category": "direct",
+      "query": "DPA encryption at rest requirement",
+      "topic": "eval-legal",
+      "expected_answer": "Encryption at rest and access logging required.",
+      "gold_source_document": "eval-harness/legal-contracts/data-processing-addendum.md",
+      "gold_source_chunk_contains": [
+        "encryption at rest"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/data-processing-addendum.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-direct-08",
+      "category": "direct",
+      "query": "insurance certificates vendor checklist",
+      "topic": "eval-legal",
+      "expected_answer": "Insurance certificates must be on file.",
+      "gold_source_document": "eval-harness/legal-contracts/vendor-contract-checklist.md",
+      "gold_source_chunk_contains": [
+        "Insurance certificates"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/vendor-contract-checklist.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-synonym-01",
+      "category": "synonym",
+      "query": "aggregate liability limit recent fees",
+      "topic": "eval-legal",
+      "expected_answer": "Aggregate liability capped at 12-month fees.",
+      "gold_source_document": "eval-harness/legal-contracts/msa-template-v3.md",
+      "gold_source_chunk_contains": [
+        "aggregate liability"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/msa-template-v3.md"
+      ],
+      "acceptable_alternate_terms": [
+        "liability cap"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-synonym-02",
+      "category": "synonym",
+      "query": "processor personal data annex A purpose limit",
+      "topic": "eval-legal",
+      "expected_answer": "Processing limited to Annex A purposes.",
+      "gold_source_document": "eval-harness/legal-contracts/data-processing-addendum.md",
+      "gold_source_chunk_contains": [
+        "Annex A"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/data-processing-addendum.md"
+      ],
+      "acceptable_alternate_terms": [
+        "DPA"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-synonym-03",
+      "category": "synonym",
+      "query": "third party IP indemnification sow",
+      "topic": "eval-legal",
+      "expected_answer": "Indemnification when listed in SOW.",
+      "gold_source_document": "eval-harness/legal-contracts/liability-cap-clause.md",
+      "gold_source_chunk_contains": [
+        "third-party IP"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/liability-cap-clause.md"
+      ],
+      "acceptable_alternate_terms": [
+        "IP claims"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-synonym-04",
+      "category": "synonym",
+      "query": "binding arbitration location vendor contract",
+      "topic": "eval-legal",
+      "expected_answer": "Binding arbitration in Wilmington.",
+      "gold_source_document": "eval-harness/legal-contracts/msa-template-v3.md",
+      "gold_source_chunk_contains": [
+        "Wilmington"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/msa-template-v3.md"
+      ],
+      "acceptable_alternate_terms": [
+        "dispute resolution"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-acronym-01",
+      "category": "acronym",
+      "query": "DPA meaning vendor personal data",
+      "topic": "eval-legal",
+      "expected_answer": "Data Processing Addendum for personal data.",
+      "gold_source_document": "eval-harness/legal-contracts/data-processing-addendum.md",
+      "gold_source_chunk_contains": [
+        "Data Processing Addendum"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/data-processing-addendum.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-acronym-02",
+      "category": "acronym",
+      "query": "MSA template latest version identifier",
+      "topic": "eval-legal",
+      "expected_answer": "MSA Template v3 effective June 2024.",
+      "gold_source_document": "eval-harness/legal-contracts/msa-template-v3.md",
+      "gold_source_chunk_contains": [
+        "Template v3"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/msa-template-v3.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-acronym-03",
+      "category": "acronym",
+      "query": "SOW referenced indemnification carve-out",
+      "topic": "eval-legal",
+      "expected_answer": "SOW must list IP indemnification carve-outs.",
+      "gold_source_document": "eval-harness/legal-contracts/liability-cap-clause.md",
+      "gold_source_chunk_contains": [
+        "SOW"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/liability-cap-clause.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-acronym-04",
+      "category": "acronym",
+      "query": "BAA not in legal corpus trap",
+      "topic": "eval-legal",
+      "expected_answer": "Legal corpus uses DPA not BAA.",
+      "gold_source_document": "eval-harness/legal-contracts/vendor-contract-checklist.md",
+      "gold_source_chunk_contains": [
+        "DPA"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/vendor-contract-checklist.md"
+      ],
+      "acceptable_alternate_terms": [
+        "DPA attached"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-version-01",
+      "category": "version_trap",
+      "query": "10000 flat liability cap MSA",
+      "topic": "eval-legal",
+      "expected_answer": "Archived v1 $10k cap is obsolete.",
+      "gold_source_document": "eval-harness/legal-contracts/msa-template-v3.md",
+      "gold_source_chunk_contains": [
+        "twelve (12) months"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/msa-template-v3.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/legal-contracts/msa-template-v1-archived.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/legal-contracts/msa-template-v1-archived.md"
+      ]
+    },
+    {
+      "id": "legal-version-02",
+      "category": "version_trap",
+      "query": "California governing law archived MSA",
+      "topic": "eval-legal",
+      "expected_answer": "v1 California law superseded by v3 Delaware.",
+      "gold_source_document": "eval-harness/legal-contracts/msa-template-v3.md",
+      "gold_source_chunk_contains": [
+        "Delaware"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/msa-template-v3.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/legal-contracts/msa-template-v1-archived.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/legal-contracts/msa-template-v1-archived.md"
+      ]
+    },
+    {
+      "id": "legal-cross-01",
+      "category": "cross_doc",
+      "query": "checklist DPA liability cap alignment",
+      "topic": "eval-legal",
+      "expected_answer": "Checklist requires cap matches liability-cap-clause library.",
+      "gold_source_document": "eval-harness/legal-contracts/vendor-contract-checklist.md",
+      "gold_source_chunk_contains": [
+        "liability cap matches"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/vendor-contract-checklist.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "legal-cross-02",
+      "category": "cross_doc",
+      "query": "DPA subprocessors liability library reference",
+      "topic": "eval-legal",
+      "expected_answer": "Liability library cross-refs DPA for subprocessors.",
+      "gold_source_document": "eval-harness/legal-contracts/liability-cap-clause.md",
+      "gold_source_chunk_contains": [
+        "Data Processing Addendum"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/legal-contracts/liability-cap-clause.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    }
+  ]
+}

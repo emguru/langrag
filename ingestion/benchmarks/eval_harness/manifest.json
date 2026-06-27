@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "description": "SWAG Evaluation Harness — five isolated ugly corpora for serious retrieval comparison.",
+  "fixtures_root_subdir": "eval-harness",
+  "target_questions_per_corpus": 100,
+  "pilot_questions_per_corpus": 20,
+  "corpora": [
+    {
+      "id": "retail-furniture",
+      "topic": "eval-retail",
+      "manifest": "corpora/retail-furniture/manifest.json",
+      "qrels": "corpora/retail-furniture/qrels.json"
+    },
+    {
+      "id": "terraform-cloud",
+      "topic": "eval-terraform",
+      "manifest": "corpora/terraform-cloud/manifest.json",
+      "qrels": "corpora/terraform-cloud/qrels.json"
+    },
+    {
+      "id": "legal-contracts",
+      "topic": "eval-legal",
+      "manifest": "corpora/legal-contracts/manifest.json",
+      "qrels": "corpora/legal-contracts/qrels.json"
+    },
+    {
+      "id": "medical-admin",
+      "topic": "eval-medical",
+      "manifest": "corpora/medical-admin/manifest.json",
+      "qrels": "corpora/medical-admin/qrels.json"
+    },
+    {
+      "id": "mixed-garbage",
+      "topic": "eval-garbage",
+      "manifest": "corpora/mixed-garbage/manifest.json",
+      "qrels": "corpora/mixed-garbage/qrels.json"
+    }
+  ],
+  "baselines": [
+    "bm25",
+    "vector",
+    "hybrid_rrf",
+    "hybrid_rerank",
+    "swag"
+  ],
+  "thresholds": {
+    "min_domain_improvement_pct": 10.0,
+    "min_domains_improved": 4,
+    "min_hard_category_improvement_pct": 15.0,
+    "hard_categories": ["synonym", "acronym", "version_trap"],
+    "max_latency_multiplier_vs_vector": 3.0
+  }
+}

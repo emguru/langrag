@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "description": "Retail / furniture / shoes — messy duplicates, deprecated sizing, partial assembly extract.",
+  "corpus_id": "retail-furniture",
+  "topic": "eval-retail",
+  "fixtures": [
+    {"seed_key": "eval-harness/retail-furniture/shoe-sizing-guide-v2.md", "topic": "eval-retail", "path": "retail-furniture/shoe-sizing-guide-v2.md"},
+    {"seed_key": "eval-harness/retail-furniture/shoe-sizing-guide-v1-deprecated.md", "topic": "eval-retail", "path": "retail-furniture/shoe-sizing-guide-v1-deprecated.md"},
+    {"seed_key": "eval-harness/retail-furniture/return-policy-2024.md", "topic": "eval-retail", "path": "retail-furniture/return-policy-2024.md"},
+    {"seed_key": "eval-harness/retail-furniture/couch-assembly-FINAL.pdf.txt", "topic": "eval-retail", "path": "retail-furniture/couch-assembly-FINAL.pdf.txt"},
+    {"seed_key": "eval-harness/retail-furniture/athletic-footwear-catalog.md", "topic": "eval-retail", "path": "retail-furniture/athletic-footwear-catalog.md"},
+    {"seed_key": "eval-harness/retail-furniture/duplicate-return-policy-copy.md", "topic": "eval-retail", "path": "retail-furniture/duplicate-return-policy-copy.md"}
+  ]
+}

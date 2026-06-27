@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "description": "Legal / contracts — archived MSA versions, liability caps, DPA cross-refs.",
+  "corpus_id": "legal-contracts",
+  "topic": "eval-legal",
+  "fixtures": [
+    {"seed_key": "eval-harness/legal-contracts/msa-template-v3.md", "topic": "eval-legal", "path": "legal-contracts/msa-template-v3.md"},
+    {"seed_key": "eval-harness/legal-contracts/msa-template-v1-archived.md", "topic": "eval-legal", "path": "legal-contracts/msa-template-v1-archived.md"},
+    {"seed_key": "eval-harness/legal-contracts/liability-cap-clause.md", "topic": "eval-legal", "path": "legal-contracts/liability-cap-clause.md"},
+    {"seed_key": "eval-harness/legal-contracts/data-processing-addendum.md", "topic": "eval-legal", "path": "legal-contracts/data-processing-addendum.md"},
+    {"seed_key": "eval-harness/legal-contracts/vendor-contract-checklist.md", "topic": "eval-legal", "path": "legal-contracts/vendor-contract-checklist.md"}
+  ]
+}

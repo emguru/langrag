@@ -1,0 +1,379 @@
+{
+  "version": 1,
+  "description": "Pilot qrels (20/100 target) \u2014 terraform-cloud",
+  "corpus_id": "terraform-cloud",
+  "topic": "eval-terraform",
+  "top_k": 5,
+  "pilot": true,
+  "target_cases": 100,
+  "category_mix_target": {
+    "direct": 40,
+    "synonym": 20,
+    "acronym": 20,
+    "version_trap": 10,
+    "cross_doc": 10
+  },
+  "cases": [
+    {
+      "id": "tf-direct-01",
+      "category": "direct",
+      "query": "terraform vpc module outputs vpc_id",
+      "topic": "eval-terraform",
+      "expected_answer": "Outputs include vpc_id and subnet ids.",
+      "gold_source_document": "eval-harness/terraform-cloud/vpc-module-readme.md",
+      "gold_source_chunk_contains": [
+        "vpc_id"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/vpc-module-readme.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-direct-02",
+      "category": "direct",
+      "query": "IAM pipeline least privilege terraform apply",
+      "topic": "eval-terraform",
+      "expected_answer": "Scoped create/modify/delete on tagged resources.",
+      "gold_source_document": "eval-harness/terraform-cloud/iam-policy-patterns.md",
+      "gold_source_chunk_contains": [
+        "least-privilege"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/iam-policy-patterns.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-direct-03",
+      "category": "direct",
+      "query": "terraform 1.5 s3 backend locking change",
+      "topic": "eval-terraform",
+      "expected_answer": "S3 backend use_lockfile replaces DynamoDB lock table.",
+      "gold_source_document": "eval-harness/terraform-cloud/terraform-1.5-upgrade-notes.md",
+      "gold_source_chunk_contains": [
+        "use_lockfile"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/terraform-1.5-upgrade-notes.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-direct-04",
+      "category": "direct",
+      "query": "EKS module IRSA oidc output",
+      "topic": "eval-terraform",
+      "expected_answer": "Outputs oidc_provider_arn for IRSA.",
+      "gold_source_document": "eval-harness/terraform-cloud/eks-cluster-module.md",
+      "gold_source_chunk_contains": [
+        "oidc_provider_arn"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/eks-cluster-module.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-direct-05",
+      "category": "direct",
+      "query": "VPC module creates security groups?",
+      "topic": "eval-terraform",
+      "expected_answer": "Security groups are not created by VPC module.",
+      "gold_source_document": "eval-harness/terraform-cloud/vpc-module-readme.md",
+      "gold_source_chunk_contains": [
+        "not"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/vpc-module-readme.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-direct-06",
+      "category": "direct",
+      "query": "terraform test framework GA version",
+      "topic": "eval-terraform",
+      "expected_answer": "terraform test is GA in 1.5 upgrade notes.",
+      "gold_source_document": "eval-harness/terraform-cloud/terraform-1.5-upgrade-notes.md",
+      "gold_source_chunk_contains": [
+        "terraform test"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/terraform-1.5-upgrade-notes.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-direct-07",
+      "category": "direct",
+      "query": "private subnet tag kubernetes internal elb",
+      "topic": "eval-terraform",
+      "expected_answer": "Private subnets need internal-elb role tag.",
+      "gold_source_document": "eval-harness/terraform-cloud/eks-cluster-module.md",
+      "gold_source_chunk_contains": [
+        "kubernetes.io/role/internal-elb"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/eks-cluster-module.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-direct-08",
+      "category": "direct",
+      "query": "avoid AdministratorAccess CI terraform",
+      "topic": "eval-terraform",
+      "expected_answer": "Avoid AdministratorAccess; use scoped roles.",
+      "gold_source_document": "eval-harness/terraform-cloud/iam-policy-patterns.md",
+      "gold_source_chunk_contains": [
+        "AdministratorAccess"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/iam-policy-patterns.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-synonym-01",
+      "category": "synonym",
+      "query": "virtual private cloud module cidr input",
+      "topic": "eval-terraform",
+      "expected_answer": "Primary input cidr_block default 10.0.0.0/16.",
+      "gold_source_document": "eval-harness/terraform-cloud/vpc-module-readme.md",
+      "gold_source_chunk_contains": [
+        "cidr_block"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/vpc-module-readme.md"
+      ],
+      "acceptable_alternate_terms": [
+        "VPC CIDR"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-synonym-02",
+      "category": "synonym",
+      "query": "managed node groups service account roles",
+      "topic": "eval-terraform",
+      "expected_answer": "IRSA enabled on EKS module.",
+      "gold_source_document": "eval-harness/terraform-cloud/eks-cluster-module.md",
+      "gold_source_chunk_contains": [
+        "IRSA"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/eks-cluster-module.md"
+      ],
+      "acceptable_alternate_terms": [
+        "IRSA",
+        "oidc"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-synonym-03",
+      "category": "synonym",
+      "query": "state lock dynamodb legacy terraform docs",
+      "topic": "eval-terraform",
+      "expected_answer": "Legacy docs mention DynamoDB locks \u2014 trap for version questions.",
+      "gold_source_document": "eval-harness/terraform-cloud/terraform-1.2-legacy-docs.md",
+      "gold_source_chunk_contains": [
+        "DynamoDB"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/terraform-1.2-legacy-docs.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/terraform-cloud/terraform-1.2-legacy-docs.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/terraform-cloud/terraform-1.2-legacy-docs.md"
+      ]
+    },
+    {
+      "id": "tf-synonym-04",
+      "category": "synonym",
+      "query": "identity access management CI read-only plan role",
+      "topic": "eval-terraform",
+      "expected_answer": "Plan role read-only on state and Describe* APIs.",
+      "gold_source_document": "eval-harness/terraform-cloud/iam-policy-patterns.md",
+      "gold_source_chunk_contains": [
+        "read-only"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/iam-policy-patterns.md"
+      ],
+      "acceptable_alternate_terms": [
+        "IAM plan role"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-acronym-01",
+      "category": "acronym",
+      "query": "what does SG mean in cloud glossary",
+      "topic": "eval-terraform",
+      "expected_answer": "SG = Security Group.",
+      "gold_source_document": "eval-harness/terraform-cloud/acronym-glossary.md",
+      "gold_source_chunk_contains": [
+        "Security Group"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/acronym-glossary.md"
+      ],
+      "acceptable_alternate_terms": [
+        "security group"
+      ],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-acronym-02",
+      "category": "acronym",
+      "query": "IRSA acronym EKS",
+      "topic": "eval-terraform",
+      "expected_answer": "IRSA = IAM Roles for Service Accounts.",
+      "gold_source_document": "eval-harness/terraform-cloud/acronym-glossary.md",
+      "gold_source_chunk_contains": [
+        "IAM Roles for Service Accounts"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/acronym-glossary.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-acronym-03",
+      "category": "acronym",
+      "query": "TF internal shorthand terraform",
+      "topic": "eval-terraform",
+      "expected_answer": "TF shorthand for Terraform.",
+      "gold_source_document": "eval-harness/terraform-cloud/acronym-glossary.md",
+      "gold_source_chunk_contains": [
+        "Terraform"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/acronym-glossary.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-acronym-04",
+      "category": "acronym",
+      "query": "AZ availability zone abbreviation",
+      "topic": "eval-terraform",
+      "expected_answer": "AZ = Availability Zone.",
+      "gold_source_document": "eval-harness/terraform-cloud/acronym-glossary.md",
+      "gold_source_chunk_contains": [
+        "Availability Zone"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/acronym-glossary.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-version-01",
+      "category": "version_trap",
+      "query": "terraform 0.12 migration dynamodb lock table only",
+      "topic": "eval-terraform",
+      "expected_answer": "Legacy 1.2 doc trap; 1.5 uses S3 use_lockfile.",
+      "gold_source_document": "eval-harness/terraform-cloud/terraform-1.5-upgrade-notes.md",
+      "gold_source_chunk_contains": [
+        "use_lockfile"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/terraform-1.5-upgrade-notes.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/terraform-cloud/terraform-1.2-legacy-docs.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/terraform-cloud/terraform-1.2-legacy-docs.md"
+      ]
+    },
+    {
+      "id": "tf-version-02",
+      "category": "version_trap",
+      "query": "provider pessimistic constraint 3.0 archived doc",
+      "topic": "eval-terraform",
+      "expected_answer": "Archived 1.2 provider pin guidance is outdated.",
+      "gold_source_document": "eval-harness/terraform-cloud/terraform-1.5-upgrade-notes.md",
+      "gold_source_chunk_contains": [
+        "1.5"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/terraform-1.5-upgrade-notes.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [
+        "eval-harness/terraform-cloud/terraform-1.2-legacy-docs.md"
+      ],
+      "forbidden_top1_seed_keys": [
+        "eval-harness/terraform-cloud/terraform-1.2-legacy-docs.md"
+      ]
+    },
+    {
+      "id": "tf-cross-01",
+      "category": "cross_doc",
+      "query": "EKS module VPC subnet dependency",
+      "topic": "eval-terraform",
+      "expected_answer": "EKS module requires existing VPC/subnets; see VPC module readme.",
+      "gold_source_document": "eval-harness/terraform-cloud/eks-cluster-module.md",
+      "gold_source_chunk_contains": [
+        "VPC module"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/eks-cluster-module.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    },
+    {
+      "id": "tf-cross-02",
+      "category": "cross_doc",
+      "query": "IAM acronym glossary vs policy patterns OIDC",
+      "topic": "eval-terraform",
+      "expected_answer": "Policy patterns prefer OIDC over long-lived keys; glossary defines IAM.",
+      "gold_source_document": "eval-harness/terraform-cloud/iam-policy-patterns.md",
+      "gold_source_chunk_contains": [
+        "OIDC"
+      ],
+      "relevant_seed_keys": [
+        "eval-harness/terraform-cloud/iam-policy-patterns.md"
+      ],
+      "acceptable_alternate_terms": [],
+      "trap_documents": [],
+      "forbidden_top1_seed_keys": []
+    }
+  ]
+}
