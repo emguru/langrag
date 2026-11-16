@@ -17,6 +17,8 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       LLM_PROVIDER: openai
+      RAG_HYBRID: "true"
+      RAG_RERANK: "false"
     env_file:
       - .env
     depends_on:
@@ -42,6 +44,7 @@ services:
     environment:
       LANGGRAPH_URL: http://agents:8000
       INGESTION_URL: http://ingestion:8001
+      RAG_ASSISTANT_ID: rag_agent
     env_file:
       - .env
     depends_on:

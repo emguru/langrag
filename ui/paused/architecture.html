@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAG Demo — Architecture</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=Newsreader:opsz,wght@16..72,500;16..72,600&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "DM Sans", system-ui, sans-serif;
+        background:
+          radial-gradient(1200px 600px at 12% -10%, rgba(196, 165, 116, 0.08), transparent 55%),
+          #0b0d10;
+        color: #ece8e1;
+      }
+      header, main { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
+      header h1 {
+        font-family: Newsreader, serif;
+        font-weight: 550;
+        margin: 0 0 0.35rem;
+      }
+      header p, .desc { color: #9a9388; }
+      .banner {
+        background: rgba(196, 165, 116, 0.12);
+        border: 1px solid rgba(196, 165, 116, 0.35);
+        border-radius: 12px;
+        padding: 0.9rem 1.1rem;
+        margin-bottom: 1.25rem;
+      }
+      section {
+        background: rgba(20, 22, 27, 0.88);
+        border: 1px solid rgba(236, 232, 225, 0.08);
+        border-radius: 16px;
+        padding: 1.25rem 1.4rem;
+        margin-bottom: 1.25rem;
+      }
+      a { color: #c4a574; }
+      table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+      th, td { border-bottom: 1px solid rgba(236, 232, 225, 0.08); padding: 0.45rem 0.3rem; text-align: left; }
+      .mermaid { background: #ece8e1; border-radius: 12px; padding: 1rem; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>RAG Demo — architecture</h1>
+      <p>Clean RAG on AWS. Interactive host: <code>rag.automatico.llc</code>.</p>
+    </header>
+    <main>
+      <div class="banner">
+        The live demo is <strong>paused</strong>. Corpus documents stay in S3 and can be
+        re-indexed for a scheduled walkthrough.
+        <a href="/">Paused notice</a> ·
+        <a href="https://automatico.llc/assessment.html">Request a demo</a>
+      </div>
+      <section>
+        <h2>Path</h2>
+        <p class="desc">Documents in S3 are chunked and embedded, stored in Qdrant, then retrieved for an answer with citations.</p>
+        <pre class="mermaid">
+flowchart LR
+  User[User] --> Edge[rag.automatico.llc]
+  Edge --> Ask[Ask / Search]
+  Ask --> Agents[Agents]
+  Agents --> Ingest[Ingest / retrieve]
+  Ingest --> S3[S3 corpus]
+  Ingest --> Qdrant[Vector index]
+  Agents --> Model[Generation]
+  Model --> User
+        </pre>
+      </section>
+      <section>
+        <h2>What comes back for a demo</h2>
+        <table>
+          <tr><th>Kept while paused</th><td>S3 corpus documents</td></tr>
+          <tr><th>Restored on request</th><td>Auth, API, retrieval index, ask/search UI</td></tr>
+          <tr><th>Not kept idle</th><td>Login pool, compute, and the vector service</td></tr>
+        </table>
+      </section>
+    </main>
+    <script>
+      mermaid.initialize({ startOnLoad: true, theme: "neutral" });
+    </script>
+  </body>
+</html>

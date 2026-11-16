@@ -13,7 +13,6 @@ from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from ingestion.config import settings
 from ingestion.limits import read_response_limited
-from ingestion.swag.profile import SWAGProfileGenerator
 from ingestion.url_safety import UnsafeUrlError, validate_fetch_url
 
 
@@ -63,31 +62,21 @@ def extract_text_from_bytes(data: bytes, filename: str) -> list[tuple[str, int |
 
 
 def chunk_documents(pages: list[tuple[str, int | None]], source: str) -> list[dict]:
-    from ingestion.swag.chunk_quality import classify_chunk_kind
-    from ingestion.swag.structure import split_markdown_segments
-
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
     )
     chunks = []
-    is_markdown = source.lower().endswith(".md") or "validation://" in source
     for text, page in pages:
-        segments: list[tuple[str, str | None]] = [(text, None)]
-        if settings.structural_split and is_markdown:
-            segments = [(seg, kind) for seg, kind in split_markdown_segments(text)]
-
-        for segment_text, segment_kind in segments:
-            for i, chunk in enumerate(splitter.split_text(segment_text)):
-                row = {
+        for i, chunk in enumerate(splitter.split_text(text)):
+            chunks.append(
+                {
                     "text": chunk,
                     "source": source,
                     "page": page,
                     "chunk_index": i,
                 }
-                kind = segment_kind or classify_chunk_kind(chunk)
-                row["chunk_kind"] = kind
-                chunks.append(row)
+            )
     return chunks
 
 
@@ -98,10 +87,11 @@ def embed_and_upsert(
         return 0
 
     embedder = get_embedder()
-    client = QdrantClient(url=settings.qdrant_url)
-    profile_generator = SWAGProfileGenerator() if settings.swag_enabled else None
+    client_kwargs = {"url": settings.qdrant_url}
+    if settings.qdrant_api_key:
+        client_kwargs["api_key"] = settings.qdrant_api_key
+    client = QdrantClient(**client_kwargs)
 
-    # Probe vector size
     sample = embedder.embed_documents(["dimension probe"])
     ensure_collection(client, collection, vector_size=len(sample[0]))
 
@@ -117,16 +107,6 @@ def embed_and_upsert(
                 **({"document_id": doc_id} if doc_id else {}),
                 **({"seed_key": chunk["seed_key"]} if chunk.get("seed_key") else {}),
             }
-            if profile_generator and settings.swag_ingest_profiles:
-                source_name = str(chunk.get("source", "unknown")).split("/")[-1]
-                profile = profile_generator.generate_chunk_profile(
-                    chunk["text"],
-                    source_filename=source_name,
-                    page_number=chunk.get("page"),
-                )
-                payload["swag_profile"] = profile.model_dump()
-                if chunk.get("chunk_kind"):
-                    payload["chunk_kind"] = chunk["chunk_kind"]
             points.append(
                 PointStruct(
                     id=str(uuid.uuid4()),

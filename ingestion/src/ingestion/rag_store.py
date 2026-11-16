@@ -10,7 +10,10 @@ from ingestion.pipeline import get_embedder
 
 
 def _client() -> QdrantClient:
-    return QdrantClient(url=settings.qdrant_url)
+    kwargs = {"url": settings.qdrant_url}
+    if settings.qdrant_api_key:
+        kwargs["api_key"] = settings.qdrant_api_key
+    return QdrantClient(**kwargs)
 
 
 def _normalize_collection(collection: str) -> str:
@@ -157,6 +160,9 @@ def search_documents(
     collection: str = "",
     top_k: int | None = None,
     topic: str | None = None,
+    *,
+    hnsw_ef: int | None = None,
+    exact: bool = False,
 ) -> list[dict]:
     collection = _normalize_collection(collection)
     limit = top_k or settings.rag_top_k
@@ -170,11 +176,21 @@ def search_documents(
             must=[FieldCondition(key="topic", match=MatchValue(value=topic))]
         )
 
+    search_params = None
+    if exact or hnsw_ef is not None:
+        from qdrant_client.models import SearchParams
+
+        search_params = SearchParams(
+            exact=bool(exact),
+            hnsw_ef=hnsw_ef if hnsw_ef is not None else None,
+        )
+
     response = client.query_points(
         collection_name=collection,
         query=vectors[0],
         limit=limit,
         query_filter=query_filter,
+        search_params=search_params,
         with_payload=True,
     )
 
@@ -191,7 +207,6 @@ def search_documents(
                 "chunk_index": payload.get("chunk_index"),
                 "topic": payload.get("topic"),
                 "document_id": payload.get("document_id"),
-                "swag_profile": payload.get("swag_profile"),
                 "seed_key": payload.get("seed_key"),
             }
         )
@@ -318,14 +333,4 @@ def delete_document(source: str, collection: str = "") -> int:
     client.delete(collection_name=collection, points_selector=point_ids)
     return len(point_ids)
 
-
-def persist_swag_profile(collection: str, point_id: str, profile: dict) -> None:
-    """Persist a SWAG profile onto an existing Qdrant point."""
-    collection = _normalize_collection(collection)
-    client = _client()
-    client.set_payload(
-        collection_name=collection,
-        payload={"swag_profile": profile},
-        points=[point_id],
-    )
 

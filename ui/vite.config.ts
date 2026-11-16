@@ -6,7 +6,18 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      "/api": "http://localhost:8000",
+      "/ask": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+        rewrite: () => "/api/ask",
+      },
+      "/resume": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+        rewrite: () => "/api/resume",
+      },
+      "/rag": "http://localhost:8001",
+      "/ingest": "http://localhost:8001",
     },
   },
 });

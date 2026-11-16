@@ -1,4 +1,10 @@
 .env
+.env.*
+!.env.example
+cdk-outputs.json
+cdk-ui-outputs.json
+cdk.context.json
+ui/tsconfig.tsbuildinfo
 *.tfvars
 !*.tfvars.example
 .terraform/

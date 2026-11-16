@@ -1,28 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { DEMO_SCENARIOS } from "./demoQueries";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
-type RunEvent = { type: string; message: string; timestamp: string };
-type SubQuestion = { id: string; question: string; rationale: string };
-type Critique = {
-  gaps: string[];
-  contradictions: string[];
-  follow_up_questions: string[];
-  ready_to_synthesize: boolean;
-};
-type Finding = {
-  sub_question_id: string;
-  summary: string;
-  confidence: string;
-  rag_hits?: RagHit[];
-};
+import { apiFetch, AuthRequiredError } from "./api";
+import {
+  type AuthConfig,
+  type AuthSession,
+  authRequired,
+  completeNewPassword,
+  loadAuthConfig,
+  readSession,
+  signIn,
+  signOut,
+  writeSession,
+} from "./auth";
+
+type Tab = "ask" | "search" | "corpus" | "ingest";
+
 type RagHit = {
   score?: number;
-  vector_score?: number;
-  swag_score?: number;
-  metadata_boost?: number;
-  swag_explanation?: string;
-  swag_rank?: number;
-  relevance?: string;
   text: string;
   source?: string;
   page?: number;
@@ -31,45 +25,71 @@ type RagHit = {
   document_id?: string;
   id?: string;
 };
-type SearchMode = "baseline" | "swag" | "crag" | "swag_crag";
-type RankChange = {
-  key: string;
-  baseline_rank: number | null;
-  augmented_rank: number | null;
-  rank_delta: number | null;
-};
-type LiftMetric = { label: string; value_pct: number };
-type PipelineLift = {
-  pipeline: string;
-  rank_improved_pct: number;
-  top1_score_lift_pct: number;
-  top1_quality_fix_pct: number;
-  noise_filtered_pct: number;
-  relevant_kept_pct?: number | null;
-  mean_swag_top3_pct?: number | null;
-  positive_metrics: LiftMetric[];
-  has_positive_lift: boolean;
-  baseline_count: number;
-  augmented_count: number;
-};
-type SearchLift = {
-  baseline_top_k: number;
-  baseline_compare?: string;
-  active_mode?: SearchMode;
-  swag_rerank?: PipelineLift;
-  swag_full?: PipelineLift;
-  swag?: PipelineLift;
-  crag?: PipelineLift;
-  swag_crag?: PipelineLift;
+
+type RosesPlan = {
+  role?: string;
+  objective?: string;
+  scenario?: {
+    status?: string;
+    chunk_count?: number;
+    sources?: string[];
+    summary?: string;
+  };
+  expected_solution?: string;
+  steps?: string[];
+  where?: string;
 };
 
-type LiftCardSpec = { title: string; lift: PipelineLift };
-type SearchConfidence = {
-  low_confidence: boolean;
-  top_vector_score: number;
-  min_vector_score: number;
-  message: string;
+type AskResult = {
+  thread_id: string;
+  status: "completed" | "interrupted";
+  answer?: string;
+  chunks?: RagHit[];
+  roses?: RosesPlan;
+  interrupt?: {
+    type: string;
+    question: string;
+    chunks: RagHit[];
+    message: string;
+    roses?: RosesPlan;
+    assessment?: {
+      ambiguous?: boolean;
+      reasons?: string[];
+      senses?: string[];
+      suggestions?: { question: string; why: string; cost: string }[];
+      cheapest_path?: string;
+    };
+    confidence?: {
+      level?: string;
+      top_score?: number;
+      message?: string;
+    };
+    actions?: { id: string; label: string; cost: string }[];
+  };
 };
+
+type PreviewData = {
+  filename: string;
+  pages_extracted: number;
+  total_chars: number;
+  chunk_count: number;
+  avg_chunk_chars: number;
+  empty_extraction: boolean;
+  preview_chunks: {
+    page?: number;
+    chunk_index: number;
+    char_count: number;
+    text_preview: string;
+  }[];
+};
+
+type CorpusStats = {
+  collection: string;
+  total_points: number;
+  document_count: number;
+  topics: string[];
+};
+
 type DocumentRow = {
   source: string;
   topic?: string;
@@ -77,50 +97,19 @@ type DocumentRow = {
   chunk_count: number;
   page_count?: number;
 };
-type PreviewData = {
-  filename: string;
-  pages_extracted: number;
-  pdf_page_count?: number;
-  total_chars: number;
-  chunk_count: number;
-  avg_chunk_chars: number;
-  empty_extraction: boolean;
-  preview_chunks: { page?: number; chunk_index: number; char_count: number; text_preview: string }[];
-  preview_truncated: boolean;
-};
 
-const SEARCH_MODES_ORDER: SearchMode[] = ["swag", "baseline", "crag", "swag_crag"];
-
-const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
-  baseline: "Vector only",
-  swag: "Vector → SWAG",
-  crag: "Vector → CRAG (optional)",
-  swag_crag: "Vector → SWAG → CRAG (optional)",
-};
-
-const PIPELINE_STEPS: Record<SearchMode, string> = {
-  baseline: "Vector search",
-  swag: "Vector search → SWAG rerank",
-  crag: "Vector search → CRAG filter",
-  swag_crag: "Vector search → SWAG rerank → CRAG filter",
-};
-
-/** Honest framing for side-by-side mode compare — not a marketing claim. */
-const MODE_RELEVANCE_GUIDE: Record<SearchMode, string> = {
-  baseline:
-    "Shows classic RAG: embedding similarity only. README chrome, nav, and near-duplicate chunks often rank high — that is the problem this stack targets.",
-  swag:
-    "Primary demo path. Compare baseline to see nav demoted, duplicates dropped, and body chunks promoted (Top-1 quality and noise filtered in lift cards). This is what SWAG sells.",
-  crag:
-    "Optional grader on raw vector hits — tune via ingestion config when your corpus needs strict gating. Weaker alone on messy HTML corpora.",
-  swag_crag:
-    "Optional agent stack: SWAG cleans candidates, then CRAG grades survivors. Empty results often mean the grader rejected low confidence — not that SWAG failed. Use scripted SWAG demos first.",
-};
+type PipelineStep =
+  | "idle"
+  | "retrieve"
+  | "vector"
+  | "hitl"
+  | "generate"
+  | "done"
+  | "error";
 
 const DEFAULT_COLLECTION = "research_docs";
-const SESSION_THREAD_KEY = "researchThreadId";
-const SESSION_CHECKPOINT_KEY = "researchCheckpoint";
-type Tab = "research" | "ingest" | "search" | "library";
+const LANGSMITH_PROJECT = "rag-demo";
+const LANGSMITH_URL = `https://smith.langchain.com`;
 
 function hitPreview(text: string, max = 180): string {
   const trimmed = text.trim();
@@ -128,1203 +117,1431 @@ function hitPreview(text: string, max = 180): string {
   return `${trimmed.slice(0, max - 1)}…`;
 }
 
-function renderHitScores(hit: RagHit, mode: SearchMode): string {
-  const parts: string[] = [];
-  if (hit.score != null) parts.push(`score ${hit.score.toFixed(3)}`);
-  if (mode !== "baseline" && hit.vector_score != null) {
-    parts.push(`vec ${hit.vector_score.toFixed(3)}`);
-  }
-  if ((mode === "swag" || mode === "swag_crag") && hit.swag_score != null) {
-    parts.push(`swag ${hit.swag_score.toFixed(3)}`);
-  }
-  if (hit.relevance) parts.push(hit.relevance);
-  return parts.join(" · ");
+function shortSource(source?: string): string {
+  if (!source) return "unknown";
+  const parts = source.split("/");
+  return parts[parts.length - 1] || source;
 }
 
-function formatLiftPct(value: number): string {
-  return `+${value.toFixed(value % 1 === 0 ? 0 : 1)}%`;
-}
-
-function normalizeSearchLift(raw: unknown, topK: number): SearchLift | null {
-  if (!raw || typeof raw !== "object") return null;
-  const lift = raw as Record<string, unknown>;
-  const swagRerank = lift.swag_rerank as PipelineLift | undefined;
-  const swagLegacy = lift.swag as PipelineLift | undefined;
-  const swagFull = lift.swag_full as PipelineLift | undefined;
-  const crag = lift.crag as PipelineLift | undefined;
-  const swagCrag = lift.swag_crag as PipelineLift | undefined;
-  if (!swagRerank && !swagLegacy && !swagFull && !crag && !swagCrag) return null;
-  const typed = raw as SearchLift;
-  return {
-    baseline_top_k: Number(typed.baseline_top_k) || topK,
-    baseline_compare: typed.baseline_compare,
-    active_mode: typed.active_mode,
-    swag_rerank: swagRerank,
-    swag_full: swagFull,
-    swag: swagLegacy || swagRerank,
-    crag,
-    swag_crag: swagCrag,
-  };
-}
-
-function liftCardsForMode(mode: SearchMode, lift: SearchLift): LiftCardSpec[] {
-  const cards: LiftCardSpec[] = [];
-  const add = (title: string, pipeline?: PipelineLift) => {
-    if (pipeline) cards.push({ title, lift: pipeline });
-  };
-
-  switch (mode) {
-    case "swag":
-      add("SWAG rerank", lift.swag_rerank);
-      add("SWAG full stack", lift.swag_full);
-      break;
-    case "crag":
-      add("CRAG", lift.crag);
-      break;
-    case "swag_crag":
-      add("SWAG rerank", lift.swag_rerank);
-      add("SWAG full stack", lift.swag_full);
-      add("SWAG → CRAG", lift.swag_crag);
-      break;
-    default:
-      break;
-  }
-  return cards;
-}
-
-function liftPanelHint(mode: SearchMode, topK: number): string {
-  switch (mode) {
-    case "swag":
-      return (
-        `SWAG rerank compares raw vector top-${topK} vs semantic rerank only. ` +
-        `SWAG full stack compares symmetric baseline (same expand + body prune) ` +
-        `vs rerank plus the retrieval stack — use these cards as the SWAG proof.`
-      );
-    case "crag":
-      return (
-        `CRAG compares raw vector top-${topK} vs Haiku-graded chunks kept for RAG ` +
-        `(irrelevant hits dropped; web fallback when none pass).`
-      );
-    case "swag_crag":
-      return (
-        `Optional full stack. SWAG cards show rerank value first; SWAG → CRAG adds grader ` +
-        `filtering — check baseline comparison for purged vs kept chunks.`
-      );
-    default:
-      return "";
-  }
-}
-
-function LiftCard({ title, lift }: { title: string; lift: PipelineLift }) {
+function KnobTip({ text }: { text: string }) {
   return (
-    <div className={`lift-card ${lift.has_positive_lift ? "lift-positive" : "lift-neutral"}`}>
-      <h4>{title}</h4>
-      {lift.has_positive_lift ? (
-        <ul className="lift-metrics">
-          {lift.positive_metrics.map((metric) => (
-            <li key={metric.label}>
-              <span className="lift-value">{formatLiftPct(metric.value_pct)}</span>
-              <span className="lift-label">{metric.label}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="hint lift-none">No measurable lift over baseline on this query.</p>
-      )}
-      <small className="lift-footnote">
-        {lift.baseline_count} baseline → {lift.augmented_count} results
-      </small>
-    </div>
+    <span className="knob-help" tabIndex={0} aria-label={text}>
+      ?
+      <span className="knob-tooltip" role="tooltip">
+        {text}
+      </span>
+    </span>
   );
-}
-
-function asText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) {
-    return value
-      .map((block) => {
-        if (typeof block === "string") return block;
-        if (block && typeof block === "object" && "text" in block) {
-          return String((block as { text?: unknown }).text ?? "");
-        }
-        return "";
-      })
-      .filter(Boolean)
-      .join("\n");
-  }
-  if (value == null) return "";
-  return String(value);
-}
-
-function normalizeSubQuestions(raw: unknown): SubQuestion[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((item, idx) => {
-    const sq = item as Record<string, unknown>;
-    return {
-      id: asText(sq.id) || `sq-${idx + 1}`,
-      question: asText(sq.question),
-      rationale: asText(sq.rationale),
-    };
-  });
-}
-
-function normalizeFindings(raw: unknown): Finding[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((item, idx) => {
-    const finding = item as Record<string, unknown>;
-    return {
-      sub_question_id: asText(finding.sub_question_id) || `finding-${idx + 1}`,
-      summary: asText(finding.summary),
-      confidence: asText(finding.confidence) || "medium",
-      rag_hits: Array.isArray(finding.rag_hits)
-        ? finding.rag_hits.map((hit) => {
-            const h = hit as Record<string, unknown>;
-            return {
-              score: typeof h.score === "number" ? h.score : undefined,
-              text: asText(h.text),
-              source: asText(h.source) || undefined,
-              page: typeof h.page === "number" ? h.page : undefined,
-            };
-          })
-        : [],
-    };
-  });
-}
-
-function normalizeCritique(raw: unknown): Critique | null {
-  if (!raw || typeof raw !== "object") return null;
-  const critique = raw as Record<string, unknown>;
-  return {
-    gaps: Array.isArray(critique.gaps) ? critique.gaps.map(asText) : [],
-    contradictions: Array.isArray(critique.contradictions)
-      ? critique.contradictions.map(asText)
-      : [],
-    follow_up_questions: Array.isArray(critique.follow_up_questions)
-      ? critique.follow_up_questions.map(asText)
-      : [],
-    ready_to_synthesize: Boolean(critique.ready_to_synthesize),
-  };
 }
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("research");
-  const [topic, setTopic] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [report, setReport] = useState("");
-  const [events, setEvents] = useState<RunEvent[]>([]);
+  const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [tab, setTab] = useState<Tab>("ask");
   const [busy, setBusy] = useState(false);
-  const [resuming, setResuming] = useState(false);
-  const [ingestStatus, setIngestStatus] = useState("");
-  const [langsmithUrl, setLangsmithUrl] = useState("");
-  const [threadId, setThreadId] = useState<string | null>(null);
-  const [checkpoint, setCheckpoint] = useState<string | null>(null);
-  const [planQuestions, setPlanQuestions] = useState<SubQuestion[]>([]);
-  const [findings, setFindings] = useState<Finding[]>([]);
-  const [critique, setCritique] = useState<Critique | null>(null);
-  const [researchIteration, setResearchIteration] = useState(0);
-  const [editedReport, setEditedReport] = useState("");
-  const [ragHits, setRagHits] = useState<RagHit[]>([]);
-  const [preview, setPreview] = useState<PreviewData | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchTopic, setSearchTopic] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("swag");
-  const [compareBaseline, setCompareBaseline] = useState(true);
-  const [searchResults, setSearchResults] = useState<RagHit[]>([]);
-  const [searchBaseline, setSearchBaseline] = useState<RagHit[]>([]);
-  const [searchCrag, setSearchCrag] = useState<Record<string, unknown> | null>(null);
-  const [searchComparison, setSearchComparison] = useState<{
-    baseline_count: number;
-    augmented_count: number;
-    rank_changes: RankChange[];
-  } | null>(null);
-  const [searchLift, setSearchLift] = useState<SearchLift | null>(null);
-  const [searchConfidence, setSearchConfidence] = useState<SearchConfidence | null>(null);
-  const [searchBusy, setSearchBusy] = useState(false);
-  const [documents, setDocuments] = useState<DocumentRow[]>([]);
-  const [stats, setStats] = useState<{ total_points: number; document_count: number; topics: string[] } | null>(null);
-  const [selectedSource, setSelectedSource] = useState<string | null>(null);
-  const [selectedChunks, setSelectedChunks] = useState<RagHit[]>([]);
-  const hitlRef = useRef<HTMLElement | null>(null);
+  const [error, setError] = useState("");
 
-  const applyHitlState = useCallback((cp: string, state: Record<string, unknown>) => {
-    if (cp === "plan") {
-      setPlanQuestions(normalizeSubQuestions(state.sub_questions));
-    } else if (cp === "critique") {
-      setFindings(normalizeFindings(state.findings));
-      setCritique(normalizeCritique(state.critique));
-    } else if (cp === "report") {
-      const nextReport = asText(state.report);
-      setEditedReport(nextReport);
-      setReport(nextReport);
+  // Tuning (shared)
+  const [topK, setTopK] = useState(5);
+  const [minScore, setMinScore] = useState<number | "">("");
+  const [hnswEf, setHnswEf] = useState(64);
+  const [exactSearch, setExactSearch] = useState(false);
+  const [candidateMult, setCandidateMult] = useState(2);
+  const [topicFilter, setTopicFilter] = useState("");
+  const [hitlEnabled, setHitlEnabled] = useState(true);
+
+  // Ask
+  const [question, setQuestion] = useState("");
+  const [askResult, setAskResult] = useState<AskResult | null>(null);
+  const [approvedChunks, setApprovedChunks] = useState<RagHit[]>([]);
+  const [pipelineStep, setPipelineStep] = useState<PipelineStep>("idle");
+
+  // Search
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchHits, setSearchHits] = useState<RagHit[]>([]);
+
+  // Corpus
+  const [stats, setStats] = useState<CorpusStats | null>(null);
+  const [documents, setDocuments] = useState<DocumentRow[]>([]);
+  const [selectedDoc, setSelectedDoc] = useState<DocumentRow | null>(null);
+  const [docChunks, setDocChunks] = useState<RagHit[]>([]);
+  const [corpusTopic, setCorpusTopic] = useState("");
+
+  // Ingest
+  const [ingestTopic, setIngestTopic] = useState("");
+  const [ingestFile, setIngestFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<PreviewData | null>(null);
+  const [ingestMessage, setIngestMessage] = useState("");
+
+  // Hugging Face
+  const [hfDataset, setHfDataset] = useState("rag-datasets/rag-mini-wikipedia");
+  const [hfConfig, setHfConfig] = useState("text-corpus");
+  const [hfSplit, setHfSplit] = useState("passages");
+  const [hfTopic, setHfTopic] = useState("hf-rag-wiki");
+  const [hfFields, setHfFields] = useState("passage");
+  const [hfMaxRows, setHfMaxRows] = useState(25);
+  const [hfMessage, setHfMessage] = useState("");
+  const [hfOptions, setHfOptions] = useState<{ config: string; split: string }[]>([
+    { config: "text-corpus", split: "passages" },
+  ]);
+  const [hfFieldOptions, setHfFieldOptions] = useState<string[]>([]);
+  const [hfPresets, setHfPresets] = useState<
+    { id: string; config: string; split: string; text_fields: string[]; topic: string; label: string }[]
+  >([]);
+  const [hfResolvedFor, setHfResolvedFor] = useState("rag-datasets/rag-mini-wikipedia");
+
+  const clearError = () => setError("");
+  const fail = (e: unknown) => {
+    if (e instanceof AuthRequiredError) {
+      writeSession(null);
+      setSession(null);
+    }
+    setError(e instanceof Error ? e.message : String(e));
+  };
+
+  useEffect(() => {
+    void loadAuthConfig().then((cfg) => {
+      setAuthConfig(cfg);
+      setSession(readSession());
+      setAuthReady(true);
+    });
+  }, []);
+
+  const loadCorpus = useCallback(async (topic?: string) => {
+    clearError();
+    try {
+      const topicQ = topic ? `&topic=${encodeURIComponent(topic)}` : "";
+      const [statsResp, docsResp] = await Promise.all([
+        apiFetch(`/rag/stats?collection=${DEFAULT_COLLECTION}`),
+        apiFetch(`/rag/documents?collection=${DEFAULT_COLLECTION}${topicQ}`),
+      ]);
+      const statsData = await statsResp.json();
+      const docsData = await docsResp.json();
+      if (!statsResp.ok) throw new Error(statsData.detail || "Failed to load stats");
+      if (!docsResp.ok) throw new Error(docsData.detail || "Failed to load documents");
+      setStats(statsData);
+      setDocuments(docsData.documents || []);
+    } catch (e) {
+      fail(e);
     }
   }, []);
 
-  const loadHitlState = useCallback(
-    async (tid: string, cp?: string | null) => {
-      try {
-        const resp = await fetch(`/api/research/state?thread_id=${encodeURIComponent(tid)}`);
-        if (!resp.ok) return false;
-        const data = await resp.json();
-        const nextCheckpoint = (cp || data.checkpoint) as string | null;
-        if (nextCheckpoint) {
-          setCheckpoint(nextCheckpoint);
-          sessionStorage.setItem(SESSION_CHECKPOINT_KEY, nextCheckpoint);
-        }
-        applyHitlState(nextCheckpoint || cp || "", (data.state || {}) as Record<string, unknown>);
-        const iteration = (data.state as Record<string, unknown> | undefined)?.iteration;
-        if (typeof iteration === "number") setResearchIteration(iteration);
-        return true;
-      } catch {
-        return false;
-      }
+  useEffect(() => {
+    if (tab === "corpus") {
+      void loadCorpus(corpusTopic || undefined);
+    }
+  }, [tab, corpusTopic, loadCorpus]);
+
+  useEffect(() => {
+    if (tab !== "ingest") return;
+    apiFetch("/ingest/huggingface/presets")
+      .then((r) => r.json())
+      .then((d) => setHfPresets(d.presets || []))
+      .catch(() => setHfPresets([]));
+  }, [tab]);
+
+  const applyHfPreset = useCallback(
+    (id: string) => {
+      const preset = hfPresets.find((p) => p.id === id);
+      if (!preset) return;
+      setHfDataset(preset.id);
+      setHfConfig(preset.config);
+      setHfSplit(preset.split);
+      setHfTopic(preset.topic);
+      setHfFields((preset.text_fields || []).join(","));
+      setHfOptions([{ config: preset.config, split: preset.split }]);
+      setHfFieldOptions(preset.text_fields || []);
+      setHfResolvedFor(preset.id);
+      setHfMessage("");
     },
-    [applyHitlState]
+    [hfPresets],
   );
 
-  const clearResearchSession = useCallback(() => {
-    sessionStorage.removeItem(SESSION_THREAD_KEY);
-    sessionStorage.removeItem(SESSION_CHECKPOINT_KEY);
+  const resetHfCustom = useCallback(() => {
+    setHfDataset("");
+    setHfConfig("");
+    setHfSplit("");
+    setHfTopic("");
+    setHfFields("");
+    setHfOptions([]);
+    setHfFieldOptions([]);
+    setHfResolvedFor("");
+    setHfMessage("");
   }, []);
 
-  const loadLibrary = useCallback(async () => {
-    const [statsResp, docsResp] = await Promise.all([
-      fetch(`/api/rag/stats?collection=${DEFAULT_COLLECTION}`),
-      fetch(`/api/rag/documents?collection=${DEFAULT_COLLECTION}`),
-    ]);
-    if (statsResp.ok) setStats(await statsResp.json());
-    if (docsResp.ok) {
-      const data = await docsResp.json();
-      setDocuments(data.documents || []);
+  const knownHfPair = useCallback(
+    (config: string, split: string) =>
+      hfOptions.some((o) => o.config === config && o.split === split),
+    [hfOptions],
+  );
+
+  const onHfDatasetChange = useCallback((next: string) => {
+    setHfDataset(next);
+    if (next.trim() === hfResolvedFor) return;
+    setHfConfig("");
+    setHfSplit("");
+    setHfOptions([]);
+    setHfFieldOptions([]);
+    setHfResolvedFor("");
+  }, [hfResolvedFor]);
+
+  const lookupHuggingFace = useCallback(async () => {
+    clearError();
+    setBusy(true);
+    setHfMessage("");
+    try {
+      const params = new URLSearchParams({ dataset: hfDataset.trim() });
+      // Never send leftover preset config (e.g. text-corpus) with a custom dataset.
+      if (knownHfPair(hfConfig, hfSplit)) {
+        if (hfConfig.trim()) params.set("config", hfConfig.trim());
+        if (hfSplit.trim()) params.set("split", hfSplit.trim());
+      }
+      const resp = await apiFetch(`/ingest/huggingface/inspect?${params}`);
+      const data = await resp.json();
+      if (!resp.ok) {
+        const detail = data.detail;
+        throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+      }
+      setHfDataset(data.dataset);
+      setHfConfig(data.config);
+      setHfSplit(data.split);
+      setHfOptions(data.available || []);
+      setHfFieldOptions(data.fields || []);
+      setHfResolvedFor(data.dataset);
+      if (data.suggested_text_fields?.length) {
+        setHfFields(data.suggested_text_fields.join(","));
+      }
+      if (!hfTopic.trim()) {
+        setHfTopic(`hf-${String(data.dataset).split("/").pop()}`);
+      }
+      setHfMessage(
+        `Found ${data.dataset} → ${data.config}/${data.split}. ` +
+          `Fields: ${(data.fields || []).join(", ") || "(none)"}. ` +
+          (data.sample_preview ? `Preview: ${data.sample_preview.slice(0, 120)}…` : ""),
+      );
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
     }
-  }, []);
+  }, [hfDataset, hfConfig, hfSplit, hfTopic, knownHfPair]);
 
-  useEffect(() => {
-    if (tab === "library" || tab === "search") loadLibrary();
-  }, [tab, loadLibrary]);
-
-  useEffect(() => {
-    const savedThreadId = sessionStorage.getItem(SESSION_THREAD_KEY);
-    const savedCheckpoint = sessionStorage.getItem(SESSION_CHECKPOINT_KEY);
-    if (savedThreadId && savedCheckpoint) {
-      setThreadId(savedThreadId);
-      setCheckpoint(savedCheckpoint);
-      void loadHitlState(savedThreadId, savedCheckpoint);
+  const submitHuggingFace = useCallback(async () => {
+    clearError();
+    setBusy(true);
+    setHfMessage("");
+    try {
+      const pairKnown = knownHfPair(hfConfig, hfSplit);
+      const resp = await apiFetch("/ingest/huggingface", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dataset: hfDataset.trim(),
+          config: pairKnown ? hfConfig.trim() : "",
+          split: pairKnown ? hfSplit.trim() : "",
+          topic: hfTopic.trim() || `hf-${hfDataset.trim().split("/").pop() || "corpus"}`,
+          text_fields: pairKnown
+            ? hfFields.split(",").map((s) => s.trim()).filter(Boolean)
+            : [],
+          max_rows: hfMaxRows,
+          offset: 0,
+          id_field: "id",
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        const detail = data.detail;
+        throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+      }
+      setHfConfig(data.config);
+      setHfSplit(data.split);
+      setHfResolvedFor(data.dataset);
+      if (data.text_fields?.length) setHfFields(data.text_fields.join(","));
+      setHfMessage(
+        `Indexed ${data.documents_indexed} docs / ${data.chunks_indexed} chunks from ${data.dataset} ` +
+          `(${data.config}/${data.split}; fetched ${data.rows_fetched}, skipped ${data.rows_skipped})`,
+      );
+      await loadCorpus();
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
     }
-  }, [loadHitlState]);
+  }, [hfDataset, hfConfig, hfSplit, hfTopic, hfFields, hfMaxRows, knownHfPair, loadCorpus]);
 
-  useEffect(() => {
-    if (checkpoint && hitlRef.current) {
-      hitlRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [checkpoint, planQuestions.length, findings.length, critique, editedReport]);
-
-  async function previewDocument() {
-    if (!file || !topic) return;
-    setIngestStatus("Analyzing...");
-    setPreview(null);
-    const form = new FormData();
-    form.append("file", file);
-    form.append("topic", topic);
-    const resp = await fetch("/api/ingest/preview", { method: "POST", body: form });
-    const data = await resp.json();
-    if (!resp.ok) {
-      setIngestStatus(data.detail || "Preview failed");
-      return;
-    }
-    setPreview(data);
-    setIngestStatus("Preview ready — review chunks, then approve indexing.");
-  }
-
-  async function uploadDocument() {
-    if (!file || !topic) return;
-    setIngestStatus("Indexing…");
-    const form = new FormData();
-    form.append("file", file);
-    form.append("topic", topic);
-    form.append("collection", DEFAULT_COLLECTION);
-    const resp = await fetch("/api/ingest/file", { method: "POST", body: form });
-    const data = await resp.json();
-    if (!resp.ok) {
-      setIngestStatus(data.detail || "Upload failed");
-      return;
-    }
-    setIngestStatus(`Indexed ${data.chunks_indexed} chunks from ${file.name}`);
-    setPreview(null);
-    if (tab === "library") loadLibrary();
-  }
-
-  async function runSearch(overrides?: {
-    query?: string;
-    topic?: string;
-    mode?: SearchMode;
-    compare?: boolean;
-  }) {
-    const query = (overrides?.query ?? searchQuery).trim();
-    if (!query) return;
-    const mode = overrides?.mode ?? searchMode;
-    const compare = overrides?.compare ?? compareBaseline;
-    const topicFilter = overrides?.topic ?? searchTopic;
-
-    if (overrides?.query != null) setSearchQuery(overrides.query);
-    if (overrides?.topic != null) setSearchTopic(overrides.topic);
-    if (overrides?.mode != null) setSearchMode(overrides.mode);
-    if (overrides?.compare != null) setCompareBaseline(overrides.compare);
-
-    setSearchBusy(true);
-    setSearchResults([]);
-    setSearchBaseline([]);
-    setSearchCrag(null);
-    setSearchComparison(null);
-    setSearchLift(null);
-    setSearchConfidence(null);
-    const resp = await fetch("/api/rag/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query,
+  const openDocument = useCallback(async (doc: DocumentRow) => {
+    setSelectedDoc(doc);
+    setDocChunks([]);
+    try {
+      const params = new URLSearchParams({
         collection: DEFAULT_COLLECTION,
-        top_k: 8,
-        mode,
-        compare,
-        ...(topicFilter ? { topic: topicFilter } : {}),
-      }),
-    });
-    const data = await resp.json();
-    setSearchBusy(false);
-    if (!resp.ok) {
-      return;
+        source: doc.source,
+        limit: "50",
+      });
+      const resp = await apiFetch(`/rag/chunks?${params}`);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || resp.statusText);
+      setDocChunks(data.chunks || []);
+    } catch (e) {
+      fail(e);
     }
-    setSearchResults(data.hits || []);
-    setSearchBaseline(data.baseline_hits || []);
-    setSearchCrag(data.crag || null);
-    setSearchComparison(data.comparison || null);
-    setSearchLift(normalizeSearchLift(data.lift, 8));
-    setSearchConfidence(data.confidence || null);
-  }
+  }, []);
 
-  function runDemoScenario(scenarioId: string) {
-    const scenario = DEMO_SCENARIOS.find((s) => s.id === scenarioId);
-    if (!scenario) return;
-    void runSearch({
-      query: scenario.query,
-      topic: scenario.topic,
-      mode: scenario.mode,
-      compare: scenario.compare,
-    });
-  }
-
-  async function loadChunks(source: string) {
-    setSelectedSource(source);
-    const resp = await fetch(
-      `/api/rag/chunks?collection=${DEFAULT_COLLECTION}&source=${encodeURIComponent(source)}&limit=50`
-    );
-    if (!resp.ok) return;
-    const data = await resp.json();
-    setSelectedChunks(data.chunks || []);
-  }
-
-  async function deleteDocument(source: string) {
-    if (!confirm("Delete all chunks for this document from the vector store?")) return;
-    const resp = await fetch(
-      `/api/rag/documents?collection=${DEFAULT_COLLECTION}&source=${encodeURIComponent(source)}`,
-      { method: "DELETE" }
-    );
-    if (resp.ok) {
-      setSelectedSource(null);
-      setSelectedChunks([]);
-      loadLibrary();
-    }
-  }
-
-  function pushEvent(type: string, message: string) {
-    setEvents((prev) => [...prev, { type, message, timestamp: new Date().toISOString() }]);
-  }
-
-  async function consumeSse(resp: Response) {
-    if (!resp.ok || !resp.body) {
-      setBusy(false);
-      pushEvent("error", "Request failed");
-      return;
-    }
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        try {
-          const evt = JSON.parse(line.slice(6));
-          if (evt.type === "thread") {
-            setThreadId(evt.thread_id);
-            sessionStorage.setItem(SESSION_THREAD_KEY, evt.thread_id);
-          } else if (evt.type === "interrupt") {
-            setBusy(false);
-            setResuming(false);
-            setThreadId(evt.thread_id);
-            setCheckpoint(evt.checkpoint);
-            sessionStorage.setItem(SESSION_THREAD_KEY, evt.thread_id);
-            sessionStorage.setItem(SESSION_CHECKPOINT_KEY, evt.checkpoint);
-            const loaded = await loadHitlState(evt.thread_id, evt.checkpoint);
-            if (!loaded && evt.state) {
-              applyHitlState(evt.checkpoint, evt.state as Record<string, unknown>);
-            }
-            pushEvent("interrupt", `Waiting for your review (${evt.checkpoint})`);
-          } else if (evt.type === "report") {
-            setReport(evt.message);
-            setEditedReport(evt.message);
-          } else if (evt.type === "rag_hits") {
-            setRagHits(evt.hits || []);
-          } else if (evt.type === "done") {
-            setBusy(false);
-            setCheckpoint(null);
-            clearResearchSession();
-          } else if (evt.type === "langsmith_url") {
-            setLangsmithUrl(evt.message);
-          } else if (evt.type === "error") {
-            pushEvent("error", evt.message);
-            setBusy(false);
-            return;
-          } else {
-            pushEvent(evt.type, evt.message || evt.type);
-          }
-        } catch {
-          /* ignore */
-        }
+  const deleteDocument = useCallback(
+    async (doc: DocumentRow) => {
+      if (!confirm(`Delete ${shortSource(doc.source)} and its passages?`)) return;
+      clearError();
+      setBusy(true);
+      try {
+        const params = new URLSearchParams({
+          source: doc.source,
+          collection: DEFAULT_COLLECTION,
+        });
+        const resp = await apiFetch(`/rag/documents?${params}`, { method: "DELETE" });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || resp.statusText);
+        setSelectedDoc(null);
+        setDocChunks([]);
+        await loadCorpus(corpusTopic || undefined);
+      } catch (e) {
+        fail(e);
+      } finally {
+        setBusy(false);
       }
-    }
-    setBusy(false);
-  }
+    },
+    [corpusTopic, loadCorpus],
+  );
 
-  async function startResearch() {
-    if (!topic) return;
+  const runAsk = useCallback(async () => {
+    clearError();
     setBusy(true);
-    setReport("");
-    setEditedReport("");
-    setEvents([]);
-    setLangsmithUrl("");
-    setThreadId(null);
-    setCheckpoint(null);
-    clearResearchSession();
-    setPlanQuestions([]);
-    setFindings([]);
-    setCritique(null);
-    setResearchIteration(0);
-    setRagHits([]);
-
-    const resp = await fetch("/api/research/stream", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic, collection: DEFAULT_COLLECTION }),
-    });
-    await consumeSse(resp);
-  }
-
-  async function resumeResearch(payload: Record<string, unknown>) {
-    if (!threadId || !checkpoint || busy || resuming) return;
-    if (checkpoint === "plan" && planQuestions.length === 0) {
-      pushEvent("error", "Plan not loaded yet — click Reload review panel");
-      void loadHitlState(threadId, checkpoint);
-      return;
-    }
-    setResuming(true);
-    setBusy(true);
-    const resp = await fetch("/api/research/resume", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ thread_id: threadId, checkpoint, ...payload }),
-    });
-    if (!resp.ok || !resp.body) {
-      setBusy(false);
-      setResuming(false);
-      let message = "Resume failed — try again in a few seconds";
-      if (resp.status === 429) {
-        message = "Too many clicks — wait a few seconds, then try again";
+    setAskResult(null);
+    setPipelineStep("retrieve");
+    try {
+      // Visual pipeline pacing for demo
+      await new Promise((r) => setTimeout(r, 400));
+      setPipelineStep("vector");
+      const resp = await apiFetch("/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question,
+          hitl_enabled: hitlEnabled,
+          topic: topicFilter || undefined,
+          top_k: topK,
+          min_score: minScore === "" ? undefined : minScore,
+          hnsw_ef: hnswEf,
+          exact_search: exactSearch,
+        }),
+      });
+      const data = (await resp.json()) as AskResult & { error?: string };
+      if (!resp.ok) throw new Error(data.error || resp.statusText);
+      setAskResult(data);
+      if (data.status === "interrupted" && data.interrupt) {
+        setApprovedChunks(data.interrupt.chunks || []);
+        setPipelineStep("hitl");
       } else {
-        try {
-          const data = await resp.json();
-          if (data.detail) message = String(data.detail);
-        } catch {
-          /* ignore */
-        }
+        setPipelineStep("generate");
+        await new Promise((r) => setTimeout(r, 200));
+        setPipelineStep("done");
       }
-      pushEvent("error", message);
-      return;
+    } catch (e) {
+      setPipelineStep("error");
+      fail(e);
+    } finally {
+      setBusy(false);
     }
-    await consumeSse(resp);
-    setResuming(false);
+  }, [question, hitlEnabled, topicFilter, topK, minScore, hnswEf, exactSearch]);
+
+  const resumeAsk = useCallback(
+    async (action: "generate" | "ungrounded" | "abort" = "generate") => {
+      if (!askResult?.thread_id) return;
+      clearError();
+      setBusy(true);
+      setPipelineStep(action === "abort" ? "done" : "generate");
+      try {
+        const resume =
+          action === "generate"
+            ? { action: "generate", chunks: approvedChunks }
+            : { action };
+        const resp = await apiFetch("/resume", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            thread_id: askResult.thread_id,
+            resume,
+          }),
+        });
+        const data = (await resp.json()) as AskResult & { error?: string };
+        if (!resp.ok) throw new Error(data.error || resp.statusText);
+        setAskResult(data);
+        setPipelineStep("done");
+      } catch (e) {
+        setPipelineStep("error");
+        fail(e);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [askResult, approvedChunks],
+  );
+
+  const applySuggestion = useCallback((suggested: string) => {
+    setQuestion(suggested);
+    setAskResult(null);
+    setApprovedChunks([]);
+    setPipelineStep("idle");
+  }, []);
+
+  const runSearch = useCallback(async () => {
+    clearError();
+    setBusy(true);
+    setSearchHits([]);
+    setPipelineStep("vector");
+    try {
+      const resp = await apiFetch("/rag/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: searchQuery,
+          top_k: topK,
+          topic: topicFilter || undefined,
+          collection: DEFAULT_COLLECTION,
+          min_score: minScore === "" ? undefined : minScore,
+          hnsw_ef: hnswEf,
+          exact_search: exactSearch,
+          candidate_multiplier: candidateMult,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || resp.statusText);
+      setSearchHits(data.hits || []);
+      setPipelineStep("done");
+    } catch (e) {
+      setPipelineStep("error");
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }, [searchQuery, topicFilter, topK, minScore, hnswEf, exactSearch, candidateMult]);
+
+  const previewIngest = useCallback(async () => {
+    if (!ingestFile || !ingestTopic) return;
+    clearError();
+    setBusy(true);
+    setPreview(null);
+    try {
+      const form = new FormData();
+      form.append("file", ingestFile);
+      form.append("topic", ingestTopic);
+      const resp = await apiFetch("/ingest/preview", { method: "POST", body: form });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || resp.statusText);
+      setPreview(data);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }, [ingestFile, ingestTopic]);
+
+  const submitIngest = useCallback(async () => {
+    if (!ingestFile || !ingestTopic) return;
+    clearError();
+    setBusy(true);
+    setIngestMessage("");
+    try {
+      const form = new FormData();
+      form.append("file", ingestFile);
+      form.append("topic", ingestTopic);
+      form.append("collection", DEFAULT_COLLECTION);
+      const resp = await apiFetch("/ingest/file", { method: "POST", body: form });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || resp.statusText);
+      setIngestMessage(
+        `Indexed ${data.chunks_indexed} chunks from ${data.source} (${data.document_id})`,
+      );
+      setPreview(null);
+      setIngestFile(null);
+      await loadCorpus();
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }, [ingestFile, ingestTopic, loadCorpus]);
+
+  const topicCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const doc of documents) {
+      const t = doc.topic || "untagged";
+      map.set(t, (map.get(t) || 0) + doc.chunk_count);
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1]);
+  }, [documents]);
+
+  const maxTopicChunks = Math.max(1, ...topicCounts.map(([, n]) => n));
+
+  if (!authReady) {
+    return (
+      <div className="app boot">
+        <p className="hint">Loading…</p>
+      </div>
+    );
   }
 
-  function renderHitlActions(className = "actions") {
-    if (!checkpoint) return null;
-    const disabled = busy || resuming;
-    if (checkpoint === "plan") {
-      return (
-        <div className={className}>
-          <button
-            disabled={disabled || planQuestions.length === 0}
-            onClick={() => resumeResearch({ sub_questions: planQuestions })}
-          >
-            {resuming ? "Running researchers…" : "Approve plan & continue"}
-          </button>
-        </div>
-      );
-    }
-    if (checkpoint === "critique") {
-      return (
-        <div className={className}>
-          <button
-            className="secondary"
-            disabled={disabled}
-            onClick={() => resumeResearch({ synthesize_now: false })}
-          >
-            More research
-          </button>
-          <button disabled={disabled} onClick={() => resumeResearch({ synthesize_now: true })}>
-            {resuming ? "Synthesizing…" : "Synthesize report now"}
-          </button>
-        </div>
-      );
-    }
-    if (checkpoint === "report") {
-      return (
-        <div className={className}>
-          <button
-            disabled={disabled}
-            onClick={() => resumeResearch({ edited_report: editedReport })}
-          >
-            {resuming ? "Finishing…" : "Approve report"}
-          </button>
-        </div>
-      );
-    }
-    return null;
+  if (authRequired(authConfig) && !session) {
+    return (
+      <LoginScreen
+        config={authConfig!}
+        onSignedIn={(next) => {
+          writeSession(next);
+          setSession(next);
+          setError("");
+        }}
+      />
+    );
   }
-
-  const compareLiftCards = searchLift ? liftCardsForMode(searchMode, searchLift) : [];
 
   return (
     <div className="app">
       <header>
-        <h1>Research Agent Showcase</h1>
-        <p>Human-in-the-loop research, RAG ingestion preview, and direct vector search</p>
+        <div className="header-row">
+          <div className="brand">
+            <span className="brand-mark" aria-hidden="true">
+              R
+            </span>
+            <div>
+              <h1>RAG Demo</h1>
+              <p>Answers from your documents, with sources you can check.</p>
+            </div>
+          </div>
+          <div className="header-actions">
+            <a
+              className="quiet-link"
+              href={LANGSMITH_URL}
+              target="_blank"
+              rel="noreferrer"
+              title={`Open traces for ${LANGSMITH_PROJECT}`}
+            >
+              Traces
+            </a>
+            {session && (
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  signOut();
+                  setSession(null);
+                }}
+              >
+                Sign out
+              </button>
+            )}
+          </div>
+        </div>
       </header>
 
+      <details className="card tune-bar advanced">
+        <summary>Advanced search settings</summary>
+        <div className="tune-grid tune-grid-wide">
+          <label>
+            <span className="knob-label">
+              Top K
+              <KnobTip text="How many passages to use. Higher can add useful context or noise. Start at 3–5; raise to 8–12 if answers feel thin." />
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={topK}
+              onChange={(e) => setTopK(Number(e.target.value))}
+            />
+          </label>
+          <label>
+            <span className="knob-label">
+              Score floor override
+              <KnobTip text="Leave blank so each passage type uses its own cutoff. Set a number only if you want one floor for everything." />
+            </span>
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.01}
+              value={minScore}
+              placeholder="auto"
+              onChange={(e) =>
+                setMinScore(e.target.value === "" ? "" : Number(e.target.value))
+              }
+            />
+          </label>
+          <label>
+            <span className="knob-label">
+              Search depth
+              <KnobTip text="How thoroughly to search the index. Higher finds more possible matches and is slower. 64 is a good default; try 128–256 if useful passages seem missing." />
+            </span>
+            <input
+              type="number"
+              min={16}
+              max={512}
+              step={16}
+              value={hnswEf}
+              onChange={(e) => setHnswEf(Number(e.target.value))}
+            />
+          </label>
+          <label>
+            <span className="knob-label">
+              Candidate ×
+              <KnobTip text="Search only: look at this many times Top K candidates, then keep the best Top K after the min score filter. 2× is a safe default." />
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={5}
+              value={candidateMult}
+              onChange={(e) => setCandidateMult(Number(e.target.value))}
+            />
+          </label>
+          <label>
+            <span className="knob-label">
+              Topic filter
+              <KnobTip text="Limit results to one topic tag. Leave empty to search everything. Wrong topic can return nothing useful." />
+            </span>
+            <input
+              type="text"
+              value={topicFilter}
+              onChange={(e) => setTopicFilter(e.target.value)}
+              placeholder="e.g. hf-rag-wiki"
+            />
+          </label>
+          <label className="checkbox-row tune-check">
+            <input
+              type="checkbox"
+              checked={exactSearch}
+              onChange={(e) => setExactSearch(e.target.checked)}
+            />
+            <span className="knob-label">
+              Exact search
+              <KnobTip text="Compare against every passage instead of an approximate index. More complete, slower on large libraries." />
+            </span>
+          </label>
+          <label className="checkbox-row tune-check">
+            <input
+              type="checkbox"
+              checked={hitlEnabled}
+              onChange={(e) => setHitlEnabled(e.target.checked)}
+            />
+            <span className="knob-label">
+              Review sources first
+              <KnobTip text="Pause after search so you can check the passages before an answer is generated. Leave on unless you want an answer immediately." />
+            </span>
+          </label>
+        </div>
+        <p className="hint">
+          Hover <span className="knob-help-static">?</span> for details. Leave these alone unless results look off.
+        </p>
+      </details>
+
       <nav className="tabs">
-        {(["research", "ingest", "search", "library"] as Tab[]).map((t) => (
+        {(["ask", "search", "corpus", "ingest"] as Tab[]).map((t) => (
           <button
             key={t}
+            type="button"
             className={tab === t ? "tab active" : "tab"}
             onClick={() => setTab(t)}
-            type="button"
           >
-            {t === "research" ? "Research" : t === "ingest" ? "Ingest" : t === "search" ? "Search RAG" : "Library"}
+            {t === "ask"
+              ? "Ask"
+              : t === "search"
+                ? "Search"
+                : t === "corpus"
+                  ? "Library"
+                  : "Ingest"}
           </button>
         ))}
       </nav>
 
-      {tab === "research" && (
-        <div className={`grid${checkpoint ? " hitl-active" : ""}`}>
-          {checkpoint && (
-            <div className="hitl-banner full-width" role="status">
-              <strong>Action required — {checkpoint} review</strong>
-              {checkpoint === "plan" && (
-                <span>
-                  Approve the research plan to run researchers on your topic.
-                </span>
-              )}
-              {checkpoint === "critique" && (
-                <span>
-                  Iteration {researchIteration || 1} of 2. Synthesize the report or run one more
-                  research pass.
-                </span>
-              )}
-              {checkpoint === "report" && (
-                <span>Edit the draft report, then approve to finish.</span>
-              )}
-              {renderHitlActions("actions banner-actions")}
-            </div>
-          )}
-
-          {checkpoint === "plan" && (
-            <section ref={hitlRef} className="card hitl full-width">
-              <h2>Review research plan</h2>
-              <p className="hint">Expand each sub-question to read and edit.</p>
-              {planQuestions.length === 0 && (
-                <p className="hint warn">Plan data not loaded — click Reload review panel above.</p>
-              )}
-              {planQuestions.map((sq, i) => (
-                <details key={sq.id} className="hitl-details" open>
-                  <summary>
-                    <span className="hitl-summary-id">{sq.id}</span>
-                    <span className="hitl-summary-preview">{sq.question || "Empty question"}</span>
-                  </summary>
-                  <div className="hitl-details-body">
-                    <label htmlFor={`sq-q-${sq.id}`}>Question</label>
-                    <textarea
-                      id={`sq-q-${sq.id}`}
-                      className="hitl-textarea"
-                      rows={5}
-                      value={sq.question}
-                      onChange={(e) => {
-                        const next = [...planQuestions];
-                        next[i] = { ...sq, question: e.target.value };
-                        setPlanQuestions(next);
-                      }}
-                    />
-                    <label htmlFor={`sq-r-${sq.id}`}>Rationale</label>
-                    <textarea
-                      id={`sq-r-${sq.id}`}
-                      className="hitl-textarea"
-                      rows={4}
-                      value={sq.rationale}
-                      onChange={(e) => {
-                        const next = [...planQuestions];
-                        next[i] = { ...sq, rationale: e.target.value };
-                        setPlanQuestions(next);
-                      }}
-                      placeholder="Why this sub-question matters..."
-                    />
-                  </div>
-                </details>
-              ))}
-              {renderHitlActions()}
-            </section>
-          )}
-
-          {checkpoint === "critique" && (
-            <section ref={hitlRef} className="card hitl full-width">
-              <h2>Review findings</h2>
-              <p className="hint">Expand sections below to read full agent output.</p>
-              {!critique && findings.length === 0 && (
-                <p className="hint warn">Findings not loaded — click Reload review panel above.</p>
-              )}
-              {critique && (
-                <details className="hitl-details" open>
-                  <summary>
-                    <span className="hitl-summary-id">Critic</span>
-                    <span className="hitl-summary-preview">
-                      {critique.ready_to_synthesize ? "Ready to synthesize" : "More research suggested"}
-                    </span>
-                  </summary>
-                  <div className="hitl-details-body critique">
-                    {critique.gaps?.length > 0 && (
-                      <>
-                        <strong>Gaps</strong>
-                        <ul>
-                          {critique.gaps.map((g, idx) => (
-                            <li key={idx}>{g}</li>
-                          ))}
-                        </ul>
-                      </>
-                    )}
-                    {critique.contradictions?.length > 0 && (
-                      <>
-                        <strong>Contradictions</strong>
-                        <ul>
-                          {critique.contradictions.map((c, idx) => (
-                            <li key={idx}>{c}</li>
-                          ))}
-                        </ul>
-                      </>
-                    )}
-                    {critique.follow_up_questions?.length > 0 && (
-                      <>
-                        <strong>Follow-up questions</strong>
-                        <ul>
-                          {critique.follow_up_questions.map((q, idx) => (
-                            <li key={idx}>{q}</li>
-                          ))}
-                        </ul>
-                      </>
-                    )}
-                  </div>
-                </details>
-              )}
-              {findings.map((f, idx) => {
-                const summary = f.summary || "";
-                return (
-                  <details key={`${f.sub_question_id}-${idx}`} className="hitl-details" open>
-                    <summary>
-                      <span className="hitl-summary-id">{f.sub_question_id}</span>
-                      <span className="hitl-summary-preview">
-                        ({f.confidence || "medium"}) {summary.slice(0, 120)}
-                        {summary.length > 120 ? "…" : ""}
-                      </span>
-                    </summary>
-                    <div className="hitl-details-body">
-                      <pre className="hitl-readout">{summary || "No summary returned for this finding."}</pre>
-                      {f.rag_hits && f.rag_hits.length > 0 && (
-                        <div className="hitl-nested">
-                          <strong>RAG evidence ({f.rag_hits.length} hits)</strong>
-                          {f.rag_hits.map((h, i) => (
-                            <details key={i} className="hitl-details nested">
-                              <summary>
-                                <span className="score">{(h.score ?? 0).toFixed(3)}</span>
-                                {(h.text || "").slice(0, 100)}
-                                {(h.text?.length ?? 0) > 100 ? "…" : ""}
-                              </summary>
-                              <pre className="hitl-readout">{h.text || ""}</pre>
-                              {h.source && <small className="hitl-source">{h.source}</small>}
-                            </details>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </details>
-                );
-              })}
-              {renderHitlActions()}
-            </section>
-          )}
-
-          {checkpoint === "report" && (
-            <section ref={hitlRef} className="card hitl full-width">
-              <h2>Edit final report</h2>
-              <p className="hint">Review and edit the full report below.</p>
-              <details className="hitl-details" open>
-                <summary>
-                  <span className="hitl-summary-id">Report draft</span>
-                  <span className="hitl-summary-preview">
-                    {editedReport.slice(0, 120)}
-                    {editedReport.length > 120 ? "…" : ""}
-                  </span>
-                </summary>
-                <div className="hitl-details-body">
-                  <textarea
-                    className="hitl-textarea report-edit"
-                    rows={24}
-                    value={editedReport}
-                    onChange={(e) => setEditedReport(e.target.value)}
-                  />
-                </div>
-              </details>
-              {renderHitlActions()}
-            </section>
-          )}
-
-          <section className={`card${checkpoint ? " compact" : ""}`}>
-            <h2>Research topic</h2>
-            <label htmlFor="topic">Topic</label>
-            <textarea
-              id="topic"
-              placeholder="Research topic..."
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-            />
-            <button onClick={startResearch} disabled={busy || !topic || !!checkpoint}>
-              {busy ? "Running..." : "Start research run"}
-            </button>
-            {checkpoint && threadId && (
-              <div className="actions">
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={busy || resuming}
-                  onClick={() => void loadHitlState(threadId, checkpoint)}
-                >
-                  Reload review panel
-                </button>
-              </div>
-            )}
-            {langsmithUrl && (
-              <div className="links">
-                <a href={langsmithUrl} target="_blank" rel="noreferrer">
-                  View trace in LangSmith →
-                </a>
-              </div>
-            )}
-          </section>
-
-          <section className="card">
-            <h2>Live progress</h2>
-            <ul className="events">
-              {events.length === 0 && <li>No events yet.</li>}
-              {events.map((e, i) => (
-                <li key={i}>
-                  <span className="badge">{e.type}</span>
-                  {e.message}
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          {ragHits.length > 0 && (
-            <section className="card">
-              <h2>RAG evidence (latest researchers pass)</h2>
-              {ragHits.slice(0, 8).map((h, i) => (
-                <div key={i} className="hit">
-                  <span className="score">{(h.score ?? 0).toFixed(3)}</span>
-                  <div>{h.text}</div>
-                  <small>{h.source}</small>
-                </div>
-              ))}
-            </section>
-          )}
-
-          <section className="card full-width">
-            <h2>Research report</h2>
-            <div className="report">{report || "Report will appear when synthesis completes."}</div>
-          </section>
+      {error && (
+        <div className="card error-card">
+          <p>{error}</p>
         </div>
       )}
 
-      {tab === "research" && checkpoint && (
-        <div className="hitl-sticky-bar">{renderHitlActions("actions sticky-actions")}</div>
+      {(tab === "ask" || tab === "search") && (
+        <PipelineViz
+          step={pipelineStep}
+          hitl={tab === "ask" && hitlEnabled}
+          mode={tab}
+        />
       )}
 
-      {tab === "ingest" && (
+      {tab === "ask" && (
         <div className="grid">
           <section className="card">
-            <h2>Ingest documents</h2>
-            <label htmlFor="ingest-topic">Topic tag (groups documents in RAG)</label>
-            <input id="ingest-topic" value={topic} onChange={(e) => setTopic(e.target.value)} />
-            <label htmlFor="file">Upload PDF or text</label>
-            <input
-              id="file"
-              type="file"
-              accept=".pdf,.txt,.md,.html"
-              onChange={(e) => {
-                setFile(e.target.files?.[0] || null);
-                setPreview(null);
-              }}
+            <h2>Ask</h2>
+            <label htmlFor="question">Question</label>
+            <textarea
+              id="question"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder="What is retrieval augmented generation (RAG)?"
             />
-            <div className="actions">
-              <button className="secondary" onClick={previewDocument} disabled={!file || !topic}>
-                Preview quality
-              </button>
-              <button onClick={uploadDocument} disabled={!file || !topic}>
-                Approve & index
-              </button>
-            </div>
-            <p className="status">{ingestStatus}</p>
+            <button type="button" disabled={busy || !question.trim()} onClick={runAsk}>
+              {busy ? "Searching…" : "Ask"}
+            </button>
           </section>
 
-          {preview && (
-            <section className="card full-width">
-              <h2>Ingest preview — {preview.filename}</h2>
-              <div className="metrics">
-                <span>Pages extracted: {preview.pages_extracted}{preview.pdf_page_count ? ` / ${preview.pdf_page_count} PDF pages` : ""}</span>
-                <span>Chars: {preview.total_chars.toLocaleString()}</span>
-                <span>Chunks: {preview.chunk_count}</span>
-                <span>Avg chunk: {preview.avg_chunk_chars} chars</span>
-                {preview.empty_extraction && <span className="warn">Warning: no text extracted</span>}
-              </div>
-              {preview.preview_chunks.map((c, i) => (
-                <details key={i} className="chunk-preview">
-                  <summary>
-                    Page {c.page ?? "—"} · chunk {c.chunk_index} · {c.char_count} chars
-                  </summary>
-                  <pre>{c.text_preview}</pre>
-                </details>
-              ))}
-              {preview.preview_truncated && <p className="hint">Showing first chunks only.</p>}
-            </section>
-          )}
+          <section className="card">
+            <h2>
+              {askResult?.status === "interrupted"
+                ? "Review sources"
+                : "Answer"}
+            </h2>
+            {!askResult && (
+              <p className="hint">Sources appear here so you can review them before an answer is generated.</p>
+            )}
+            {askResult?.status === "completed" && (
+              <>
+                <RosesPanel roses={askResult.roses} />
+                <CitedAnswer
+                  text={askResult.answer || ""}
+                  chunks={askResult.chunks || []}
+                />
+                {askResult.chunks && askResult.chunks.length > 0 && (
+                  <HitList hits={askResult.chunks} title="Sources used" />
+                )}
+              </>
+            )}
+            {askResult?.status === "interrupted" && askResult.interrupt && (
+              <>
+                <RosesPanel roses={askResult.interrupt.roses || askResult.roses} />
+                <p className="hint">{askResult.interrupt.message}</p>
+
+                {askResult.interrupt.confidence && (
+                  <div
+                    className={`banner ${
+                      askResult.interrupt.confidence.level === "ok" ? "ok" : "warn"
+                    }`}
+                  >
+                    <strong>Retrieval:</strong> {askResult.interrupt.confidence.message}
+                  </div>
+                )}
+
+                {askResult.interrupt.assessment?.ambiguous && (
+                  <div className="banner warn">
+                    <strong>Ambiguity:</strong>
+                    <ul className="assess-list">
+                      {(askResult.interrupt.assessment.reasons || []).map((r) => (
+                        <li key={r}>{r}</li>
+                      ))}
+                    </ul>
+                    {askResult.interrupt.assessment.senses &&
+                      askResult.interrupt.assessment.senses.length > 0 && (
+                        <>
+                          <p>
+                            <strong>Possible senses</strong>
+                          </p>
+                          <ul className="assess-list">
+                            {askResult.interrupt.assessment.senses.map((s) => (
+                              <li key={s}>{s}</li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                    <p className="hint">{askResult.interrupt.assessment.cheapest_path}</p>
+                  </div>
+                )}
+
+                {(askResult.interrupt.assessment?.suggestions || []).length > 0 && (
+                  <div className="suggestions">
+                    <h3>Cheaper / clearer asks</h3>
+                    <ul>
+                      {(askResult.interrupt.assessment?.suggestions || []).map((s) => (
+                        <li key={s.question}>
+                          <button
+                            type="button"
+                            className="link-btn"
+                            onClick={() => applySuggestion(s.question)}
+                          >
+                            {s.question}
+                          </button>
+                          <span className="hint">
+                            {" "}
+                            — {s.why} ({s.cost})
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <HitList
+                  hits={approvedChunks}
+                  title={
+                    approvedChunks.length
+                      ? `${approvedChunks.length} passage${approvedChunks.length === 1 ? "" : "s"} — remove any you do not want used`
+                      : "No passages found"
+                  }
+                  editable
+                  onChange={setApprovedChunks}
+                />
+
+                <div className="button-row">
+                  <button
+                    type="button"
+                    disabled={busy || approvedChunks.length === 0}
+                    onClick={() => resumeAsk("generate")}
+                  >
+                    Generate from selected passages
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => resumeAsk("abort")}
+                  >
+                    Stop and rephrase
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary danger-outline"
+                    disabled={busy}
+                    onClick={() => resumeAsk("ungrounded")}
+                  >
+                    Answer without sources
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
         </div>
       )}
 
       {tab === "search" && (
         <div className="grid">
           <section className="card">
-            <h2>Search indexed documents</h2>
-            <p className="hint">
-              <strong>SWAG</strong> is the demo story: compare <strong>Vector only</strong> vs{" "}
-              <strong>Vector → SWAG</strong> to show rerank lift (nav demoted, body promoted).
-              CRAG layers are optional — enable when your corpus needs grader gating; all knobs live
-              in ingestion config.
-            </p>
-            <div className="compare-guide" role="note">
-              <strong>Relevance guide — {SEARCH_MODE_LABELS[searchMode]}</strong>
-              <p>{MODE_RELEVANCE_GUIDE[searchMode]}</p>
-            </div>
-            <div className="demo-scenarios">
-              <strong>Scripted demo paths</strong>
-              <p className="hint">
-                Frozen from the validation suite — click to run with the right topic and pipeline.
-              </p>
-              <div className="demo-scenario-group">
-                <span className="demo-scenario-heading">SWAG proof</span>
-                <div className="demo-scenario-buttons">
-                  {DEMO_SCENARIOS.filter((s) => s.group === "swag").map((scenario) => (
-                    <button
-                      key={scenario.id}
-                      type="button"
-                      className="secondary demo-scenario-btn"
-                      disabled={searchBusy}
-                      title={scenario.blurb}
-                      onClick={() => runDemoScenario(scenario.id)}
-                    >
-                      {scenario.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="demo-scenario-group">
-                <span className="demo-scenario-heading">Optional layers</span>
-                <div className="demo-scenario-buttons">
-                  {DEMO_SCENARIOS.filter((s) => s.group === "optional").map((scenario) => (
-                    <button
-                      key={scenario.id}
-                      type="button"
-                      className="secondary demo-scenario-btn optional"
-                      disabled={searchBusy}
-                      title={scenario.blurb}
-                      onClick={() => runDemoScenario(scenario.id)}
-                    >
-                      {scenario.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <h2>Search</h2>
+            <p className="hint">Find passages in your documents.</p>
+            <label htmlFor="search-query">Query</label>
             <input
+              id="search-query"
+              type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="e.g. How do we automate invoice processing and PO approval?"
-              onKeyDown={(e) => e.key === "Enter" && void runSearch()}
+              placeholder="vendor contract liability"
             />
-            <label htmlFor="search-topic-filter">Topic filter (optional)</label>
-            <select
-              id="search-topic-filter"
-              value={searchTopic}
-              onChange={(e) => setSearchTopic(e.target.value)}
-            >
-              <option value="">All topics (mixed corpus)</option>
-              {(stats?.topics || []).map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-            <p className="hint">
-              Use a <strong>topic lane</strong> for domain demos (AP, cafeteria). Mixed corpus is
-              intentionally noisy — free-form queries belong in SWAG mode with compare, not as the
-              primary pitch.
-            </p>
-            <fieldset className="mode-selector">
-              <legend>Retrieval pipeline</legend>
-              {SEARCH_MODES_ORDER.map((mode) => (
-                <label key={mode} className="mode-option">
-                  <input
-                    type="radio"
-                    name="search-mode"
-                    value={mode}
-                    checked={searchMode === mode}
-                    onChange={() => setSearchMode(mode)}
-                  />
-                  {SEARCH_MODE_LABELS[mode]}
-                </label>
-              ))}
-            </fieldset>
-            <label className="compare-toggle">
-              <input
-                type="checkbox"
-                checked={compareBaseline}
-                onChange={(e) => setCompareBaseline(e.target.checked)}
-              />
-              Compare against baseline vector ranking
-            </label>
-            <button onClick={() => void runSearch()} disabled={searchBusy || !searchQuery.trim()}>
-              {searchBusy ? "Searching…" : `Search (${SEARCH_MODE_LABELS[searchMode]})`}
+            <button type="button" disabled={busy || !searchQuery.trim()} onClick={runSearch}>
+              {busy ? "Searching…" : "Search"}
             </button>
           </section>
-          <section className="card full-width">
-            <h2>Results</h2>
-            {searchConfidence?.low_confidence && (
-              <div className="confidence-banner">
-                <strong>Low corpus confidence</strong>
-                <p>{searchConfidence.message}</p>
-                <small>
-                  Top vector score {searchConfidence.top_vector_score.toFixed(3)} is below the
-                  floor ({searchConfidence.min_vector_score}). Use{" "}
-                  <strong>Vector → CRAG</strong> if you need web fallback.
-                </small>
-              </div>
+          <section className="card">
+            <h2>Passages</h2>
+            {searchHits.length === 0 ? (
+              <p className="hint">No hits yet.</p>
+            ) : (
+              <HitList hits={searchHits} />
             )}
-            {compareBaseline && compareLiftCards.length > 0 && (
-              <div className="lift-panel">
-                <h3>Lift vs baseline vector search</h3>
-                <p className="hint">{liftPanelHint(searchMode, searchLift!.baseline_top_k)}</p>
-                <div className="lift-grid">
-                  {compareLiftCards.map((card) => (
-                    <LiftCard key={card.title} title={card.title} lift={card.lift} />
-                  ))}
-                </div>
-              </div>
-            )}
-            <p className="hint pipeline-status">
-              <strong>Pipeline:</strong> {PIPELINE_STEPS[searchMode]}
-              {(searchMode === "crag" || searchMode === "swag_crag") &&
-                searchCrag?.action != null && (
-                <>
-                  {" · CRAG "}
-                  <strong>{String(searchCrag.action)}</strong>
-                  {" · kept "}
-                  {String(searchCrag.kept ?? 0)}/{String(searchCrag.retrieved ?? 0)}
-                  {searchCrag.rewritten_query
-                    ? ` · query rewritten: ${String(searchCrag.rewritten_query)}`
-                    : ""}
-                </>
-              )}
-            </p>
-            {searchResults.length === 0 && !searchBusy && !searchConfidence?.low_confidence && (
-              <p className="hint">
-                No results yet.
-                {(searchMode === "crag" || searchMode === "swag_crag") &&
-                  searchCrag?.action === "web_fallback" &&
-                  Number(searchCrag.kept ?? 0) === 0 && (
-                    <>
-                      {" "}
-                      CRAG returned empty — check baseline compare: SWAG may still have surfaced
-                      useful chunks before grading.
-                    </>
-                  )}
-                {searchMode === "swag" && searchBaseline.length > 0 && (
-                  <> Try a scripted demo path or narrow the topic filter.</>
-                )}
-              </p>
-            )}
-            {searchResults.map((h, i) => (
-              <div key={`${h.id || h.source}-${i}`} className="hit">
-                <span className="score">#{i + 1} · {renderHitScores(h, searchMode)}</span>
-                <div>{h.text}</div>
-                <small>
-                  {h.source} {h.page ? `· p.${h.page}` : ""}
-                  {h.topic ? ` · topic: ${h.topic}` : ""}
-                </small>
-              </div>
-            ))}
           </section>
-          {compareBaseline && searchBaseline.length > 0 && (
-            <section className="card full-width">
-              <h2>What was purged vs kept</h2>
-              <p className="hint">
-                Left: raw vector top-K (similarity ≠ relevance). Right:{" "}
-                {SEARCH_MODE_LABELS[searchMode]}
-                {searchComparison
-                  ? ` · ${searchComparison.baseline_count} baseline vs ${searchComparison.augmented_count} augmented hits`
-                  : ""}
-                . Chunks that disappear here were demoted by SWAG noise filter, dedupe, CRAG grade,
-                or confidence rules — not hidden.
-              </p>
-              <div className="compare-grid">
-                <div className="compare-column">
-                  <h3>Baseline</h3>
-                  {searchBaseline.map((h, i) => (
-                    <div key={`base-${h.id || i}`} className="hit compact">
-                      <span className="score">#{i + 1} · {h.score?.toFixed(3) ?? "—"}</span>
-                      <div>{hitPreview(h.text)}</div>
-                      <small>{h.source?.split("/").pop()}</small>
-                    </div>
-                  ))}
-                </div>
-                <div className="compare-column">
-                  <h3>{SEARCH_MODE_LABELS[searchMode]}</h3>
-                  {searchResults.map((h, i) => (
-                    <div key={`aug-${h.id || i}`} className="hit compact">
-                      <span className="score">#{i + 1} · {renderHitScores(h, searchMode)}</span>
-                      <div>{hitPreview(h.text)}</div>
-                      <small>{h.source?.split("/").pop()}</small>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {searchComparison && searchComparison.rank_changes.length > 0 && (
-                <div className="rank-changes">
-                  <h3>Rank changes</h3>
-                  <ul>
-                    {searchComparison.rank_changes
-                      .filter(
-                        (change) => change.rank_delta != null && change.rank_delta !== 0
-                      )
-                      .slice(0, 12)
-                      .map((change) => (
-                        <li key={change.key}>
-                          <code>{change.key.split(":")[0].slice(-24)}</code>
-                          {" · baseline #"}
-                          {change.baseline_rank ?? "—"}
-                          {" → augmented #"}
-                          {change.augmented_rank ?? "—"}
-                          {change.rank_delta != null && change.rank_delta !== 0 && (
-                            <span className={change.rank_delta > 0 ? "rank-up" : "rank-down"}>
-                              {" "}
-                              ({change.rank_delta > 0 ? "+" : ""}
-                              {change.rank_delta})
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                  </ul>
-                </div>
-              )}
-            </section>
-          )}
         </div>
       )}
 
-      {tab === "library" && (
-        <div className="grid">
+      {tab === "corpus" && (
+        <div className="corpus-layout">
           <section className="card">
-            <h2>Vector store library</h2>
-            {stats && (
-              <div className="metrics">
-                <span>{stats.total_points} chunks</span>
-                <span>{stats.document_count} documents</span>
-                <span>Topics: {stats.topics.join(", ") || "—"}</span>
-              </div>
+            <div className="header-row">
+              <h2>Library</h2>
+              <button type="button" className="link-btn" onClick={() => loadCorpus(corpusTopic || undefined)}>
+                Refresh
+              </button>
+            </div>
+            {stats ? (
+              <>
+                <div className="stat-strip">
+                  <div className="stat">
+                    <span className="stat-value">{stats.total_points}</span>
+                    <span className="stat-label">passages</span>
+                  </div>
+                  <div className="stat">
+                    <span className="stat-value">{stats.document_count}</span>
+                    <span className="stat-label">documents</span>
+                  </div>
+                  <div className="stat">
+                    <span className="stat-value">{stats.topics?.length ?? 0}</span>
+                    <span className="stat-label">topics</span>
+                  </div>
+                </div>
+                <p className="hint">Passages grouped by topic.</p>
+                <div className="vector-viz" aria-label="Vectors by topic">
+                  {topicCounts.map(([topic, count]) => (
+                    <button
+                      key={topic}
+                      type="button"
+                      className={`topic-bar ${corpusTopic === topic ? "active" : ""}`}
+                      onClick={() => setCorpusTopic(corpusTopic === topic ? "" : topic)}
+                      title={`${topic}: ${count} chunks`}
+                    >
+                      <span className="topic-name">{topic}</span>
+                      <span
+                        className="topic-fill"
+                        style={{ width: `${Math.max(8, (count / maxTopicChunks) * 100)}%` }}
+                      />
+                      <span className="topic-count">{count}</span>
+                    </button>
+                  ))}
+                  {topicCounts.length === 0 && <p className="hint">No documents yet.</p>}
+                </div>
+                <label htmlFor="corpus-topic">Filter topic</label>
+                <input
+                  id="corpus-topic"
+                  type="text"
+                  value={corpusTopic}
+                  onChange={(e) => setCorpusTopic(e.target.value)}
+                  placeholder="Click a bar or type a topic"
+                />
+              </>
+            ) : (
+              <p className="hint">Loading…</p>
             )}
-            <button className="secondary" onClick={loadLibrary}>
-              Refresh
-            </button>
           </section>
+
           <section className="card">
             <h2>Documents</h2>
-            {documents.length === 0 && stats && stats.document_count > 0 && (
-              <p className="hint">
-                Indexed documents exist ({stats.document_count}) but the list failed to load — try Refresh.
-              </p>
+            {documents.length === 0 ? (
+              <p className="hint">No documents for this filter.</p>
+            ) : (
+              <ul className="doc-list">
+                {documents.map((doc) => (
+                  <li key={doc.document_id || doc.source}>
+                    <button
+                      type="button"
+                      className={`doc-btn ${selectedDoc?.source === doc.source ? "active" : ""}`}
+                      onClick={() => openDocument(doc)}
+                    >
+                      <strong>{shortSource(doc.source)}</strong>
+                      <span>
+                        {doc.topic || "—"} · {doc.chunk_count} chunks
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="link-btn danger-text"
+                      disabled={busy}
+                      onClick={() => deleteDocument(doc)}
+                    >
+                      Delete
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
-            {documents.length === 0 && (!stats || stats.document_count === 0) && (
-              <p className="hint">No documents indexed yet. Run ./scripts/seed-demo-corpus.sh to load the demo set.</p>
-            )}
-            <ul className="doc-list">
-              {documents.map((d) => (
-                <li key={d.source}>
-                  <button type="button" className="linkish" onClick={() => loadChunks(d.source)}>
-                    {d.source.split("/").pop()}
-                  </button>
-                  <span>
-                    {d.chunk_count} chunks · topic: {d.topic || "—"}
-                  </span>
-                  <button type="button" className="danger" onClick={() => deleteDocument(d.source)}>
-                    Delete
-                  </button>
-                </li>
-              ))}
-            </ul>
           </section>
-          {selectedSource && (
-            <section className="card full-width">
-              <h2>Chunks — {selectedSource.split("/").pop()}</h2>
-              {selectedChunks.map((c, i) => (
-                <details key={i} className="chunk-preview">
-                  <summary>
-                    Page {c.page ?? "—"} · chunk {c.chunk_index} · score n/a
-                  </summary>
-                  <pre>{c.text}</pre>
-                </details>
-              ))}
-            </section>
-          )}
+
+          <section className="card corpus-chunks">
+            <h2>Passages</h2>
+            {!selectedDoc && <p className="hint">Select a document to see its passages.</p>}
+            {selectedDoc && (
+              <>
+                <p className="hint">
+                  {shortSource(selectedDoc.source)} · {docChunks.length} loaded
+                </p>
+                <HitList hits={docChunks} />
+              </>
+            )}
+          </section>
         </div>
       )}
+
+      {tab === "ingest" && (
+        <div className="grid">
+          <section className="card">
+            <h2>Upload document</h2>
+            <p className="hint">Add a PDF, HTML, or text file to the library.</p>
+            <label htmlFor="ingest-topic">Topic</label>
+            <input
+              id="ingest-topic"
+              type="text"
+              value={ingestTopic}
+              onChange={(e) => setIngestTopic(e.target.value)}
+              placeholder="e.g. langgraph, bedrock"
+            />
+            <label htmlFor="ingest-file">File (PDF, HTML, TXT)</label>
+            <input
+              id="ingest-file"
+              type="file"
+              onChange={(e) => setIngestFile(e.target.files?.[0] ?? null)}
+            />
+            <div className="button-row">
+              <button
+                type="button"
+                disabled={busy || !ingestFile || !ingestTopic}
+                onClick={previewIngest}
+              >
+                Preview chunks
+              </button>
+              <button
+                type="button"
+                disabled={busy || !ingestFile || !ingestTopic}
+                onClick={submitIngest}
+              >
+                Add to library
+              </button>
+            </div>
+            {ingestMessage && <p className="success">{ingestMessage}</p>}
+          </section>
+
+          <section className="card">
+            <h2>Hugging Face dataset</h2>
+            <p className="hint">
+              Enter a dataset id or URL, then look up to fill config, split, and text columns.
+            </p>
+            {hfPresets.length > 0 && (
+              <>
+                <label htmlFor="hf-preset">Preset</label>
+                <select
+                  id="hf-preset"
+                  value={hfPresets.some((p) => p.id === hfDataset) ? hfDataset : ""}
+                  onChange={(e) => {
+                    if (e.target.value) applyHfPreset(e.target.value);
+                    else resetHfCustom();
+                  }}
+                >
+                  <option value="">Custom…</option>
+                  {hfPresets.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
+            <label htmlFor="hf-dataset">Dataset (org/name or HF URL)</label>
+            <input
+              id="hf-dataset"
+              type="text"
+              value={hfDataset}
+              onChange={(e) => onHfDatasetChange(e.target.value)}
+              placeholder="rajpurkar/squad or https://huggingface.co/datasets/…"
+            />
+            <div className="button-row" style={{ marginBottom: "0.75rem" }}>
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy || !hfDataset.trim()}
+                onClick={lookupHuggingFace}
+              >
+                {busy ? "Looking up…" : "Look up"}
+              </button>
+            </div>
+            <div className="tune-grid">
+              <label>
+                Config
+                {hfOptions.length > 0 ? (
+                  <select
+                    value={`${hfConfig}||${hfSplit}`}
+                    onChange={(e) => {
+                      const [c, s] = e.target.value.split("||");
+                      setHfConfig(c);
+                      setHfSplit(s);
+                    }}
+                  >
+                    {hfOptions.map((o) => (
+                      <option key={`${o.config}/${o.split}`} value={`${o.config}||${o.split}`}>
+                        {o.config} / {o.split}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={hfConfig}
+                    onChange={(e) => setHfConfig(e.target.value)}
+                    placeholder="auto"
+                  />
+                )}
+              </label>
+              <label>
+                Split
+                <input
+                  value={hfSplit}
+                  onChange={(e) => setHfSplit(e.target.value)}
+                  placeholder="auto"
+                />
+              </label>
+              <label>
+                Max rows
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={hfMaxRows}
+                  onChange={(e) => setHfMaxRows(Number(e.target.value))}
+                />
+              </label>
+            </div>
+            <label htmlFor="hf-fields">Text fields (comma-separated)</label>
+            <input
+              id="hf-fields"
+              type="text"
+              value={hfFields}
+              onChange={(e) => setHfFields(e.target.value)}
+              placeholder="passage,text,context"
+            />
+            {hfFieldOptions.length > 0 && (
+              <p className="hint">
+                Available columns:{" "}
+                {hfFieldOptions.map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    className="link-btn"
+                    style={{ marginRight: "0.5rem" }}
+                    onClick={() => setHfFields(f)}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </p>
+            )}
+            <label htmlFor="hf-topic">Topic tag</label>
+            <input
+              id="hf-topic"
+              type="text"
+              value={hfTopic}
+              onChange={(e) => setHfTopic(e.target.value)}
+            />
+            <button
+              type="button"
+              disabled={busy || !hfDataset.trim()}
+              onClick={submitHuggingFace}
+            >
+              {busy ? "Pulling from Hugging Face…" : "Ingest from Hugging Face"}
+            </button>
+            {hfMessage && <p className="success">{hfMessage}</p>}
+          </section>
+
+          <section className="card corpus-chunks">
+            <h2>Upload preview</h2>
+            {!preview && <p className="hint">Preview a file before adding it.</p>}
+            {preview && (
+              <>
+                <p>
+                  {preview.filename}: {preview.chunk_count} chunks, {preview.total_chars} chars
+                  {preview.empty_extraction && " (empty extraction — check file)"}
+                </p>
+                <ul className="hit-list">
+                  {preview.preview_chunks.map((c) => (
+                    <li key={c.chunk_index}>
+                      <small>
+                        chunk {c.chunk_index}
+                        {c.page != null ? ` · p.${c.page}` : ""} · {c.char_count} chars
+                      </small>
+                      <p>{c.text_preview}</p>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PipelineViz({
+  step,
+  hitl,
+  mode,
+}: {
+  step: PipelineStep;
+  hitl: boolean;
+  mode: "ask" | "search";
+}) {
+  const steps =
+    mode === "search"
+      ? [
+          { id: "retrieve", label: "Query" },
+          { id: "vector", label: "Search" },
+          { id: "done", label: "Results" },
+        ]
+      : [
+          { id: "retrieve", label: "Understand" },
+          { id: "vector", label: "Find sources" },
+          ...(hitl ? [{ id: "hitl", label: "Review" }] : []),
+          { id: "generate", label: "Answer" },
+          { id: "done", label: "Done" },
+        ];
+
+  const order = steps.map((s) => s.id);
+  const activeIdx = order.indexOf(step === "error" ? "retrieve" : step);
+
+  return (
+    <section className={`pipeline ${step === "error" ? "pipeline-error" : ""}`} aria-label="Pipeline">
+      {steps.map((s, i) => {
+        const state =
+          step === "idle"
+            ? "idle"
+            : step === "error"
+              ? "error"
+              : i < activeIdx
+                ? "done"
+                : i === activeIdx
+                  ? "active"
+                  : "idle";
+        return (
+          <div key={s.id} className="pipeline-item">
+            <div className={`pipeline-node ${state}`}>
+              <span className="pipeline-dot" />
+              <span>{s.label}</span>
+            </div>
+            {i < steps.length - 1 && <div className={`pipeline-edge ${i < activeIdx ? "done" : ""}`} />}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function LoginScreen({
+  config,
+  onSignedIn,
+}: {
+  config: AuthConfig;
+  onSignedIn: (session: AuthSession) => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [challenge, setChallenge] = useState<{ session: string; username: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      if (challenge) {
+        const session = await completeNewPassword(config, challenge.username, newPassword, challenge.session);
+        onSignedIn(session);
+        return;
+      }
+      const result = await signIn(config, email, password);
+      if (result.newPasswordRequired) {
+        setChallenge(result.newPasswordRequired);
+        return;
+      }
+      if (result.session) onSignedIn(result.session);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="app login-app">
+      <form className="card login-card" onSubmit={submit}>
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true">
+            R
+          </span>
+          <div>
+            <h1>RAG Demo</h1>
+            <p>Sign in to ask questions about your documents.</p>
+          </div>
+        </div>
+        {error && <div className="banner warn">{error}</div>}
+        {!challenge ? (
+          <>
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              type="email"
+              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </>
+        ) : (
+          <>
+            <p className="hint">Choose a new password to finish signing in.</p>
+            <label htmlFor="new-password">New password</label>
+            <input
+              id="new-password"
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+              minLength={12}
+            />
+            <p className="hint">At least 12 characters, with upper, lower, a number, and a symbol.</p>
+          </>
+        )}
+        <button type="submit" disabled={busy}>
+          {busy ? "Signing in…" : challenge ? "Save password" : "Sign in"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function RosesPanel({ roses }: { roses?: RosesPlan | null }) {
+  if (!roses?.role && !roses?.objective) return null;
+  const scenario = roses.scenario;
+  return (
+    <details className="roses">
+      <summary>Plan</summary>
+      <dl>
+        <dt>Role</dt>
+        <dd>{roses.role}</dd>
+        <dt>Objective</dt>
+        <dd>{roses.objective}</dd>
+        {scenario && (
+          <>
+            <dt>Scenario</dt>
+            <dd>
+              {scenario.summary}
+              {scenario.sources && scenario.sources.length > 0
+                ? ` (${scenario.chunk_count} chunks)`
+                : ""}
+            </dd>
+          </>
+        )}
+        {roses.expected_solution && (
+          <>
+            <dt>Expected solution</dt>
+            <dd>{roses.expected_solution}</dd>
+          </>
+        )}
+        {roses.steps && roses.steps.length > 0 && (
+          <>
+            <dt>Steps</dt>
+            <dd>
+              <ol>
+                {roses.steps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            </dd>
+          </>
+        )}
+      </dl>
+    </details>
+  );
+}
+
+function CitedAnswer({ text, chunks }: { text: string; chunks: RagHit[] }) {
+  const parts = text.split(/(\[\d+\]|\[source:[^\]]+\])/g);
+  return (
+    <p className="answer">
+      {parts.map((part, i) => {
+        const numbered = part.match(/^\[(\d+)\]$/);
+        if (numbered) {
+          const idx = Number(numbered[1]) - 1;
+          const hit = chunks[idx];
+          if (!hit) return <span key={i}>{part}</span>;
+          return (
+            <button
+              key={i}
+              type="button"
+              className="cite-btn"
+              title={shortSource(hit.source)}
+              onClick={() =>
+                document.getElementById(`source-${idx}`)?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "center",
+                })
+              }
+            >
+              [{numbered[1]}]
+            </button>
+          );
+        }
+        const named = part.match(/^\[source:\s*([^\]]+)\]$/i);
+        if (named) {
+          const needle = named[1].trim();
+          const idx = chunks.findIndex((chunk) => {
+            const src = chunk.source || "";
+            return src === needle || src.endsWith(needle) || shortSource(src) === needle;
+          });
+          if (idx < 0) return <span key={i}>{part}</span>;
+          return (
+            <button
+              key={i}
+              type="button"
+              className="cite-btn"
+              title={shortSource(chunks[idx].source)}
+              onClick={() =>
+                document.getElementById(`source-${idx}`)?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "center",
+                })
+              }
+            >
+              [{idx + 1}]
+            </button>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </p>
+  );
+}
+
+function HitList({
+  hits,
+  title,
+  editable,
+  onChange,
+}: {
+  hits: RagHit[];
+  title?: string;
+  editable?: boolean;
+  onChange?: (hits: RagHit[]) => void;
+}) {
+  const remove = (idx: number) => {
+    if (!onChange) return;
+    onChange(hits.filter((_, i) => i !== idx));
+  };
+
+  return (
+    <div className="hit-panel">
+      {title && <h3>{title}</h3>}
+      <ul className="hit-list">
+        {hits.map((hit, idx) => (
+          <li
+            id={`source-${idx}`}
+            key={`${hit.id || hit.source}-${hit.chunk_index}-${idx}`}
+          >
+            <div className="hit-meta">
+              <span>
+                <span className="cite-index">[{idx + 1}]</span>{" "}
+                {shortSource(hit.source)}
+                {hit.topic ? ` · ${hit.topic}` : ""}
+                {hit.score != null ? ` · score ${hit.score.toFixed(3)}` : ""}
+              </span>
+              {editable && (
+                <button type="button" className="link-btn" onClick={() => remove(idx)}>
+                  Remove
+                </button>
+              )}
+            </div>
+            <p>{hitPreview(hit.text)}</p>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

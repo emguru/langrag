@@ -15,8 +15,10 @@ from api.limits import RateLimitExceeded, RateLimiter, UploadTooLargeError, read
 
 LANGGRAPH_URL = os.getenv("LANGGRAPH_URL", "http://localhost:8123")
 INGESTION_URL = os.getenv("INGESTION_URL", "http://localhost:8001")
+RAG_API_URL = os.getenv("RAG_API_URL", "").rstrip("/")
 LANGSMITH_PROJECT = os.getenv("LANGSMITH_PROJECT", "research-showcase")
 ASSISTANT_ID = os.getenv("LANGGRAPH_ASSISTANT_ID", "research_team")
+RAG_ASSISTANT_ID = os.getenv("RAG_ASSISTANT_ID", "rag_agent")
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(100 * 1024 * 1024)))
 RATE_LIMIT_INGEST_PER_MIN = int(os.getenv("RATE_LIMIT_INGEST_PER_MIN", "10"))
 RATE_LIMIT_RESEARCH_START_PER_MIN = int(
@@ -69,9 +71,18 @@ class RagSearchRequest(BaseModel):
     collection: str = DEFAULT_COLLECTION
     top_k: int = Field(default=8, ge=1, le=50)
     topic: str | None = None
-    mode: str = ""
-    compare: bool = False
-    crag: bool | None = None
+
+
+class AskRequest(BaseModel):
+    question: str
+    topic: str | None = None
+    hitl_enabled: bool = True
+    thread_id: str | None = None
+
+
+class ResumeRequest(BaseModel):
+    thread_id: str
+    resume: list[dict[str, Any]] | dict[str, Any]
 
 
 def _validate_collection(collection: str) -> str:
@@ -204,6 +215,84 @@ async def rag_chunks(
     if resp.status_code >= 400:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
     return resp.json()
+
+
+async def _rag_agent_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if RAG_API_URL:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(f"{RAG_API_URL}{path}", json=payload)
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        return resp.json()
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        thread_id = payload.get("thread_id")
+        if not thread_id:
+            create = await client.post(f"{LANGGRAPH_URL}/threads", json={})
+            if create.status_code >= 400:
+                raise HTTPException(status_code=create.status_code, detail=create.text)
+            thread_id = create.json()["thread_id"]
+
+        if path.endswith("/resume"):
+            run_body = {
+                "assistant_id": RAG_ASSISTANT_ID,
+                "command": {"resume": payload.get("resume")},
+            }
+        else:
+            run_body = {
+                "assistant_id": RAG_ASSISTANT_ID,
+                "input": {
+                    "question": payload["question"],
+                    "topic": payload.get("topic"),
+                    "hitl_enabled": payload.get("hitl_enabled", True),
+                },
+            }
+
+        resp = await client.post(
+            f"{LANGGRAPH_URL}/threads/{thread_id}/runs/wait",
+            json=run_body,
+        )
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        data = resp.json()
+
+    interrupts = data.get("__interrupt__") or []
+    if interrupts:
+        first = interrupts[0]
+        value = first.get("value") if isinstance(first, dict) else getattr(first, "value", first)
+        return {
+            "thread_id": thread_id,
+            "status": "interrupted",
+            "interrupt": value,
+        }
+
+    return {
+        "thread_id": thread_id,
+        "status": "completed",
+        "answer": data.get("answer"),
+        "chunks": data.get("approved_chunks") or data.get("chunks"),
+    }
+
+
+@app.post("/api/ask")
+async def ask(body: AskRequest):
+    return await _rag_agent_post(
+        "/ask",
+        {
+            "question": body.question,
+            "topic": body.topic,
+            "hitl_enabled": body.hitl_enabled,
+            "thread_id": body.thread_id,
+        },
+    )
+
+
+@app.post("/api/resume")
+async def resume(body: ResumeRequest):
+    return await _rag_agent_post(
+        "/resume",
+        {"thread_id": body.thread_id, "resume": body.resume},
+    )
 
 
 @app.post("/api/rag/search")

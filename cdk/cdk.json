@@ -14,7 +14,7 @@
   },
   "context": {
     "clusterName": "kube-rag-langg",
-    "adminPrincipalArn": "arn:aws:iam::280793168415:user/aiad-admin",
+    "adminPrincipalArn": "",
     "cognitoDomainPrefix": "kube-rag-langg-demo",
     "appDomainName": "langrag.automatico.llc",
     "certificateArn": "",

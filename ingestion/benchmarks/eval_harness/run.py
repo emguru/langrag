@@ -330,6 +330,17 @@ def main() -> int:
         type=Path,
         default=HARNESS_ROOT / "results" / f"run-{uuid.uuid4().hex[:8]}.json",
     )
+    parser.add_argument(
+        "--fit-calibration",
+        action="store_true",
+        help="Fit per-modality vector floors from qrels (no full baseline sweep)",
+    )
+    parser.add_argument(
+        "--calibration-out",
+        type=Path,
+        default=HARNESS_ROOT / "results" / "calibration.json",
+        help="Where to write calibration JSON when using --fit-calibration",
+    )
     args = parser.parse_args()
 
     generate_methods = args.generate_methods or ["swag", "hybrid_rrf"]
@@ -354,6 +365,32 @@ def main() -> int:
     if not indexed:
         print("No chunks indexed", file=sys.stderr)
         return 2
+
+    if args.fit_calibration:
+        from eval_harness.calibration import (
+            fit_vector_calibration,
+            format_calibration_report,
+            write_calibration,
+        )
+        from ingestion.config import settings
+
+        calibration = fit_vector_calibration(
+            harness_manifest=harness_manifest,
+            harness_root=args.harness_root,
+            indexed=indexed,
+            embedder=embedder,
+            vector_search=vector_search,
+            global_floor=settings.rag_min_vector_score,
+            load_json=load_json,
+            corpus_filter=args.corpus,
+        )
+        write_calibration(calibration, args.calibration_out)
+        if not args.json_only:
+            print(format_calibration_report(calibration), file=sys.stderr)
+            print(f"Calibration: {args.calibration_out}", file=sys.stderr)
+        json.dump(calibration, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 0
 
     corpus_reports: list[dict[str, Any]] = []
     for corpus in harness_manifest.get("corpora") or []:

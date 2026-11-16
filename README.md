@@ -1,114 +1,66 @@
-# Kube RAG LangGraph — Demo Showcase on AWS (CDK)
+# langrag
 
-Intermittent-demo deployment: **LangGraph research agents**, **LangSmith Cloud tracing**, and **RAG** on **Amazon EKS** — optimized to **stop/start cheaply**.
+Reference **retrieval-augmented generation** stack: ingest documents, retrieve with hybrid search, generate answers with citations.
 
-Infrastructure is managed with **AWS CDK** (TypeScript).
+The current path is **clean RAG on AWS** — S3 corpus, Qdrant on Fargate, Lambda ingest/agents, API Gateway, optional Cognito. A local Docker Compose path exists for development. An older EKS/Kubernetes showcase remains in-tree as a legacy option.
 
-## Demo-first design
+## What it demonstrates
 
-| Mode | Command | Idle cost |
-|------|---------|-----------|
-| **Running** | `./scripts/deploy.sh` | ~$0.25/hr compute |
-| **Stopped** | `./scripts/demo-stop.sh` | ~$105/mo (EKS + NAT) |
-| **Parked** | `./scripts/demo-park.sh` | ~$0-1/mo (S3 only) |
+- Document ingest, chunking, and embeddings
+- Hybrid dense + lexical retrieval with reciprocal rank fusion
+- Per-modality vector score floors (prose, markdown, code, tables)
+- Optional Amazon Rerank 1.0 (not Cohere 3.5)
+- LangGraph ask path with human-in-the-loop review
+- Clickable citations in the demo UI
+- Retrieval eval harnesses under `ingestion/benchmarks/`
 
-Full cost breakdown: [docs/DEMO_COSTS.md](docs/DEMO_COSTS.md)
+Related library: [SWAG](https://github.com/emguru/swag) (portable rerank layer).
 
-## What you need
-
-- AWS account + `aws` CLI, `kubectl`, `helm`, Docker, **Node.js 18+**
-- **LangSmith API key** ([smith.langchain.com](https://smith.langchain.com)) — free tier, no license
-- **Bedrock** model access enabled (Claude + Titan Embeddings)
-- Optional later: `TAVILY_API_KEY` for web search
-
-## Quick start
-
-```bash
-cp .env.example .env                          # LANGSMITH_API_KEY
-
-# 1. Deploy AWS infrastructure (~15-20 min)
-./scripts/infra-deploy.sh
-
-# 2. Cluster add-ons + app workloads
-./scripts/bootstrap.sh
-./scripts/deploy.sh
-```
-
-Open the UI URL printed at the end.
-
-```bash
-./scripts/seed-demo-corpus.sh           # optional RAG lesson corpus (topic: rag-demo)
-./scripts/seed-corpus-batch.sh        # diverse multi-topic corpus (append-only)
-./scripts/validate-project.sh         # offline regression (~$0)
-./scripts/benchmark-query-battery.sh  # live SWAG eval after seed
-```
-
-## Stop / start
-
-```bash
-./scripts/demo-stop.sh    # end of demo day
-./scripts/demo-start.sh   # next demo (~5 min warmup)
-./scripts/demo-status.sh  # check state + cost estimate
-./scripts/demo-park.sh    # long break — CDK destroy
-```
-
-## CDK project layout
-
-```
-cdk/
-  bin/app.ts           CDK app entry
-  lib/demo-stack.ts    VPC, EKS, S3, ECR, IRSA, Secrets Manager
-  cdk.json             Context config (demoMode, node sizing)
-scripts/
-  infra-deploy.sh      cdk bootstrap + deploy
-  cdk-outputs.sh       Read CloudFormation stack outputs
-  deploy.sh            Build images + apply K8s manifests
-  validate-project.sh  Offline go/no-go + optional live smoke
-  seed-demo-corpus.sh  Load public RAG docs into research_docs
-  seed-corpus-batch.sh  Batch-seed diverse topics from corpus-batch.manifest
-  benchmark-query-battery.sh  SWAG retrieval regression (10 queries)
-  demo-stop.sh         Scale to zero
-  demo-start.sh        Resume demo
-  demo-park.sh         cdk destroy
-```
-
-### CDK context (cdk/cdk.json)
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `clusterName` | `kube-rag-langg` | EKS cluster name |
-| `demoMode` | `true` | Minimal single-node-pool setup |
-| `nodeInstanceType` | `t3.large` | EC2 instance type |
-| `nodeMinSize` | `0` | Scale to zero when stopped |
-| `enableRds` | `false` | Skip RDS for demos |
-
-Override at deploy time:
-```bash
-cd cdk && npx cdk deploy -c nodeDesiredSize=2
-```
-
-## Local dev (no AWS cost)
+## Local development
 
 ```bash
 cp .env.example .env
 docker compose up -d
+# Ingestion API: http://localhost:8001
 cd ui && npm install && npm run dev
 ```
 
-## Legacy Terraform
+```bash
+curl -s -X POST http://localhost:8001/rag/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"what is rag","top_k":5}'
+```
 
-The `terraform/` directory is retained for reference but **CDK is the supported path**. Use `./scripts/infra-deploy.sh` instead of `terraform apply`.
+## Deploy (clean RAG)
 
-## Documentation
+Requires AWS CLI, Node 18+, Docker, and Bedrock access (Titan Embeddings v2, Nova Lite or similar).
+
+```bash
+./scripts/infra-deploy-clean-rag.sh
+API_ENDPOINT=<api gateway url> ./scripts/deploy-ui.sh
+```
+
+Details: [docs/DEPLOY_CLEAN_RAG.md](docs/DEPLOY_CLEAN_RAG.md).
+
+## Layout
+
+```
+ingestion/   FastAPI ingest + /rag/search (chunk, embed, hybrid retrieve)
+agents/      LangGraph RAG agent (/ask, /resume)
+ui/          React demo (Ask / Search / Library / Ingest)
+cdk/         AWS CDK (LangragCleanRag + LangragUi)
+fixtures/    Demo and eval corpora
+```
+
+## Docs
 
 | Document | Description |
 |----------|-------------|
-| [docs/ARCHITECTURE_DIAGRAM.md](docs/ARCHITECTURE_DIAGRAM.md) | **Architecture diagrams** (Mermaid) |
-| [docs/architecture-diagram.html](docs/architecture-diagram.html) | Browser-viewable diagrams |
-| [docs/BUILD_AND_USAGE.md](docs/BUILD_AND_USAGE.md) | **Full build & usage guide** |
-| [docs/TUNING_PLAN.md](docs/TUNING_PLAN.md) | Cost-conscious seeding and tuning workflow |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Design decisions |
-| [docs/DEMO_COSTS.md](docs/DEMO_COSTS.md) | Cost & lifecycle |
-| [docs/RUNBOOK.md](docs/RUNBOOK.md) | Operator quick reference |
+| [docs/DEPLOY_CLEAN_RAG.md](docs/DEPLOY_CLEAN_RAG.md) | Current AWS deploy |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Design notes |
+| [docs/SWAG_EVAL_HARNESS.md](docs/SWAG_EVAL_HARNESS.md) | Retrieval eval |
+| [docs/SECURITY.md](docs/SECURITY.md) | Auth and boundaries |
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/RUNBOOK.md](docs/RUNBOOK.md).
+## License
+
+Source is provided for portfolio review. Production use in your environment is your responsibility; do not commit API keys or account credentials.

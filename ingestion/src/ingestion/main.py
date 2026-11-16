@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from prometheus_client import Counter, generate_latest
-from pydantic import BaseModel, Field, HttpUrl, model_validator
+from pydantic import BaseModel, Field, HttpUrl
 from starlette.responses import PlainTextResponse
 
 from ingestion.config import settings
@@ -15,13 +15,21 @@ from ingestion.limits import (
 )
 from ingestion.pipeline import fetch_url, ingest_bytes
 from ingestion.preview import preview_bytes
+from ingestion.huggingface_ingest import (
+    HF_PRESETS,
+    ingest_huggingface,
+    inspect_dataset,
+    list_splits,
+)
 from ingestion.rag_store import (
     collection_stats,
     delete_document,
     list_chunks,
     list_documents,
 )
-from ingestion.augmentation import search_with_augmentation
+from ingestion.modality import score_floors
+from ingestion.eval_job import run_eval
+from ingestion.search import search_baseline
 
 INGEST_COUNTER = Counter("ingestion_documents_total", "Documents ingested", ["source_type"])
 CHUNK_COUNTER = Counter("ingestion_chunks_total", "Chunks indexed")
@@ -50,45 +58,67 @@ class RagSearchRequest(BaseModel):
     collection: str = ""
     top_k: int = Field(default=8, ge=1, le=50)
     topic: str | None = None
-    mode: str = Field(
-        default="",
-        description="baseline | swag | crag | swag_crag (legacy crag bool used if empty)",
-    )
-    compare: bool = False
-    crag: bool | None = None
-
-    @model_validator(mode="after")
-    def resolve_mode(self) -> RagSearchRequest:
-        if self.mode:
-            allowed = {"baseline", "swag", "crag", "swag_crag"}
-            if self.mode not in allowed:
-                raise ValueError(f"mode must be one of {sorted(allowed)}")
-            return self
-        if self.crag is False:
-            self.mode = "baseline"
-        elif self.crag is True or self.crag is None:
-            self.mode = "crag" if settings.crag_enabled else "baseline"
-        return self
+    min_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    hnsw_ef: int | None = Field(default=None, ge=16, le=512)
+    exact_search: bool = False
+    candidate_multiplier: int = Field(default=3, ge=1, le=5)
+    hybrid: bool | None = None
+    rerank: bool | None = None
 
 
 class RagSearchResponse(BaseModel):
     query: str
     hits: list[dict]
     collection: str
-    mode: str = "baseline"
-    swag: dict | None = None
-    crag: dict | None = None
-    baseline_hits: list[dict] | None = None
-    baseline_hits_raw: list[dict] | None = None
-    comparison: dict | None = None
-    lift: dict | None = None
-    confidence: dict | None = None
-    expansion: dict | None = None
+    top_k: int
+    topic: str | None = None
+    min_score: float | None = None
+    hnsw_ef: int | None = None
+    exact_search: bool = False
+    candidates_fetched: int | None = None
+    candidates_after_floor: int | None = None
+    hybrid: bool = True
+    reranked: bool = False
+    phrase_hits: int | None = None
+    score_floors: dict[str, float] | None = None
+    score_floor_mode: str | None = None
+
+
+class HuggingFaceIngestRequest(BaseModel):
+    dataset: str = Field(..., examples=["rag-datasets/rag-mini-wikipedia"])
+    topic: str = "hf-corpus"
+    collection: str = ""
+    config: str = ""
+    split: str = ""
+    text_fields: list[str] = Field(default_factory=lambda: ["text", "passage", "context"])
+    id_field: str | None = None
+    max_rows: int = Field(default=40, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class HuggingFaceIngestResponse(BaseModel):
+    dataset: str
+    config: str
+    split: str
+    topic: str
+    collection: str
+    rows_fetched: int
+    documents_indexed: int
+    rows_skipped: int
+    chunks_indexed: int
+    documents: list[dict]
+    text_fields: list[str] | None = None
+    requested_config: str | None = None
+    requested_split: str | None = None
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "score_floor_mode": "per_modality",
+        "score_floors": score_floors(),
+    }
 
 
 @app.get("/metrics")
@@ -188,6 +218,66 @@ async def ingest_url(request: Request, body: UrlIngestRequest):
     return result
 
 
+@app.get("/ingest/huggingface/presets")
+def huggingface_presets():
+    return {"presets": HF_PRESETS}
+
+
+@app.get("/ingest/huggingface/splits")
+def huggingface_splits(
+    dataset: str = Query(...),
+    config: str | None = Query(default=None),
+):
+    try:
+        return {"splits": list_splits(dataset, config=config)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/ingest/huggingface/inspect")
+def huggingface_inspect(
+    dataset: str = Query(...),
+    config: str | None = Query(default=None),
+    split: str | None = Query(default=None),
+):
+    """Resolve real config/split + suggest text columns (fixes most Custom Not found errors)."""
+    try:
+        return inspect_dataset(dataset, config=config, split=split)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/ingest/huggingface", response_model=HuggingFaceIngestResponse)
+def ingest_huggingface_endpoint(request: Request, body: HuggingFaceIngestRequest):
+    _check_ingest_rate_limit(request)
+    collection = _normalize_collection(body.collection)
+    try:
+        result = ingest_huggingface(
+            dataset=body.dataset,
+            topic=body.topic,
+            collection=collection,
+            config=body.config,
+            split=body.split,
+            text_fields=body.text_fields,
+            id_field=body.id_field,
+            max_rows=body.max_rows,
+            offset=body.offset,
+            auto_resolve=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    INGEST_COUNTER.labels(source_type="huggingface").inc()
+    CHUNK_COUNTER.inc(result["chunks_indexed"])
+    return HuggingFaceIngestResponse(**result)
+
+
 @app.get("/rag/stats")
 def rag_stats(collection: str = Query(default="")):
     try:
@@ -235,13 +325,17 @@ def rag_search(request: Request, body: RagSearchRequest):
     _check_search_rate_limit(request)
     collection = _normalize_collection(body.collection)
     try:
-        result = search_with_augmentation(
+        result = search_baseline(
             body.query,
             collection=collection,
             top_k=body.top_k,
             topic=body.topic,
-            mode=body.mode,  # type: ignore[arg-type]
-            compare=body.compare,
+            min_score=body.min_score,
+            hnsw_ef=body.hnsw_ef,
+            exact_search=body.exact_search,
+            candidate_multiplier=body.candidate_multiplier,
+            hybrid=body.hybrid,
+            rerank=body.rerank,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -253,16 +347,28 @@ def rag_search(request: Request, body: RagSearchRequest):
         query=result["query"],
         hits=result["hits"],
         collection=result["collection"],
-        mode=result.get("mode", body.mode),
-        swag=result.get("swag"),
-        crag=result.get("crag"),
-        baseline_hits=result.get("baseline_hits"),
-        baseline_hits_raw=result.get("baseline_hits_raw"),
-        comparison=result.get("comparison"),
-        lift=result.get("lift"),
-        confidence=result.get("confidence"),
-        expansion=result.get("expansion"),
+        top_k=result["top_k"],
+        topic=result.get("topic"),
+        min_score=result.get("min_score"),
+        hnsw_ef=result.get("hnsw_ef"),
+        exact_search=bool(result.get("exact_search")),
+        candidates_fetched=result.get("candidates_fetched"),
+        candidates_after_floor=result.get("candidates_after_floor"),
+        hybrid=bool(result.get("hybrid")),
+        reranked=bool(result.get("reranked")),
+        phrase_hits=result.get("phrase_hits"),
+        score_floors=result.get("score_floors"),
+        score_floor_mode=result.get("score_floor_mode"),
     )
+
+
+@app.post("/rag/eval")
+def rag_eval(request: Request):
+    _check_search_rate_limit(request)
+    try:
+        return run_eval()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.delete("/rag/documents")
